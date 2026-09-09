@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -32,14 +32,21 @@ def normalize_company(company: str) -> str:
     return " ".join(tokens)
 
 
+_TRACKING_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "ref", "refid", "trackingid", "src", "sid", "from", "tk", "fbclid", "gclid", "source", "campaign"}
+
+
 def normalize_url(url: str) -> str:
+    """Lower-case scheme/host, drop trailing slashes and fragments, keep identifying query params
+    (e.g. HN item?id=..., Indeed viewjob?jk=...) but strip tracking ones."""
     if not url:
         return ""
     try:
         p = urlparse(url.strip())
     except ValueError:
         return url.strip().lower()
-    return urlunparse((p.scheme.lower(), p.netloc.lower(), p.path.rstrip("/"), "", "", "")).lower()
+    params = [(k, v) for k, v in parse_qsl(p.query, keep_blank_values=False) if k.lower() not in _TRACKING_PARAMS and not k.lower().startswith("utm_")]
+    query = urlencode(sorted(params)) if params else ""
+    return urlunparse((p.scheme.lower(), p.netloc.lower(), p.path.rstrip("/"), "", query, "")).lower()
 
 
 def content_hash(title: str, company: str) -> str:

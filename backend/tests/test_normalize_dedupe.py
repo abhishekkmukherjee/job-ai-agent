@@ -55,7 +55,9 @@ def test_normalized_job_requires_title_and_id():
 def test_normalizers():
     assert normalize_title("Senior AI Engineer (LLM) - II") == normalize_title("AI Engineer LLM")
     assert normalize_company("Nimbus Labs Pvt. Ltd.") == "nimbus"
-    assert normalize_url("https://Example.com/jobs/1/?utm=x#top") == "https://example.com/jobs/1"
+    assert normalize_url("https://Example.com/jobs/1/?utm_source=x#top") == "https://example.com/jobs/1"
+    assert normalize_url("https://news.ycombinator.com/item?id=123") != normalize_url("https://news.ycombinator.com/item?id=124")
+    assert normalize_url("https://in.indeed.com/viewjob?jk=abc&from=ja&tk=1") == "https://in.indeed.com/viewjob?jk=abc"
     assert content_hash("AI Engineer", "Nimbus Labs") == content_hash("Sr. AI Engineer", "nimbus labs inc")
 
 
