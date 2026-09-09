@@ -141,3 +141,16 @@ def test_start_of_today_uses_local_timezone():
     # IST midnight is 18:30 UTC the previous day
     assert ist_midnight.hour == 18 and ist_midnight.minute == 30
     assert _start_of_today("Not/AZone") == utc_midnight
+
+
+def test_sample_jobs_never_seeded_into_non_empty_db(db):
+    from sqlalchemy import delete, select
+
+    from app.models import Job
+    from app.seed import seed_sample_jobs
+
+    db.execute(delete(Job).where(Job.is_sample.is_(True)))
+    db.add(Job(external_id="real-1", source="remotive", title="AI Engineer", company="Real Co"))
+    db.commit()
+    assert seed_sample_jobs(db) == 0
+    assert db.execute(select(Job).where(Job.is_sample.is_(True))).first() is None

@@ -206,8 +206,8 @@ def seed_profile(db: Session) -> Profile:
 
 
 def seed_sample_jobs(db: Session) -> int:
-    existing = db.execute(select(Job.id).where(Job.is_sample.is_(True))).first()
-    if existing is not None:
+    # Samples only make sense in an empty database; never mix them into real discovered jobs.
+    if db.execute(select(Job.id).limit(1)).first() is not None:
         return 0
     created = 0
     for idx, data in enumerate(_sample_jobs(), start=1):

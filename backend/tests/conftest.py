@@ -47,6 +47,14 @@ def db():
         Base.metadata.drop_all(bind=engine)
 
 
+@pytest.fixture(autouse=True)
+def _isolated_resume_dir(tmp_path, monkeypatch):
+    """Generated PDFs go to a temp dir, never into the real data/resumes folder."""
+    from app.services import resume_pdf
+
+    monkeypatch.setattr(resume_pdf, "RESUME_DIR", tmp_path / "resumes")
+
+
 @pytest.fixture()
 def client(db):
     from app.main import app
