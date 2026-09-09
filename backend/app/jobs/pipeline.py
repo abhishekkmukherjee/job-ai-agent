@@ -301,12 +301,25 @@ class JobPipeline:
         ).scalars().all()
         # Jobs with prioritized keywords first, then newest
         pending.sort(key=lambda j: (-len((j.filter_details or {}).get("priority_hits") or []), -(j.discovered_at.timestamp() if j.discovered_at else 0)))
+        # Already-scored jobs whose analysis predates the current profile version are re-scored, best first.
+        stale = [
+            j for j in db.execute(
+                select(Job).where(Job.pipeline_status == JobPipelineStatus.ANALYZED, Job.duplicate_of_id.is_(None), Job.user_action != JobUserAction.DISMISSED)
+            ).scalars().all()
+            if (j.analysis or {}).get("profile_version") != profile.version
+        ]
+        stale.sort(key=lambda j: -(j.match_score or 0))
+        stats["stale_rescored"] = 0
+        pending = [*pending, *stale]
         limit = self.settings.ai_max_analyses_per_run
         for job in pending[:limit]:
+            was_analyzed = job.pipeline_status == JobPipelineStatus.ANALYZED
             try:
                 before = self.analyzer.ai.stats["requests"]
                 analysis = await self.analyzer.analyze_job(db, job, profile=profile)
                 stats["analyzed"] += 1
+                if was_analyzed:
+                    stats["stale_rescored"] += 1
                 if self.analyzer.ai.stats["requests"] == before:
                     stats["cache_hits"] += 1
                 if analysis.match_score >= self.settings.ai_min_score_for_report:

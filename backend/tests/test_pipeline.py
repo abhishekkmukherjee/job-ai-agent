@@ -153,3 +153,27 @@ async def test_refilter_endpoint_applies_new_rules(client, db):
     assert r.status_code == 200 and r.json()["reset"] >= 1
     job = client.get("/api/jobs", params={"source": "fakeboard", "include_rejected": True}).json()["items"][0]
     assert job["pipeline_status"] == "REJECTED_BY_RULES" and "restricted" in job["filter_reason"]
+
+
+async def test_profile_change_rescores_already_analyzed_jobs(db):
+    from sqlalchemy import select as sa_select
+
+    from app.models import Profile
+
+    pipeline, provider = build(sources=[FakeSource([nj("31", "AI Engineer", "Great Co")])])
+    run = await pipeline.run(db, trigger="test", analyze=True)
+    first_calls = len(provider.calls)
+    assert run.stats["analyzed"] >= 1 and run.stats["stale_rescored"] == 0
+    job = db.execute(sa_select(Job).where(Job.company == "Great Co")).scalars().one()
+    assert job.analysis["profile_version"] == 1
+    # unchanged profile -> nothing re-scored, no new AI calls
+    run2 = await pipeline.run(db, trigger="test", analyze=True)
+    assert run2.stats["stale_rescored"] == 0 and len(provider.calls) == first_calls
+    # profile edit -> every analyzed job is re-scored against the new version
+    profile = db.execute(sa_select(Profile)).scalars().one()
+    profile.version += 1
+    db.commit()
+    run3 = await pipeline.run(db, trigger="test", analyze=True)
+    assert run3.stats["stale_rescored"] >= 1 and len(provider.calls) > first_calls
+    db.refresh(job)
+    assert job.analysis["profile_version"] == 2

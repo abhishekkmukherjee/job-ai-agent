@@ -55,11 +55,11 @@ class JobAnalyzer:
         self.cache = cache or AIResultCache()
 
     # ------------------------------------------------------------ analysis
-    def apply_analysis(self, job: Job, analysis: JobAnalysis, model: str, provider: str) -> None:
+    def apply_analysis(self, job: Job, analysis: JobAnalysis, model: str, provider: str, profile_version: int | None = None) -> None:
         analysis.enforce_recommendation_bands()
         job.match_score = analysis.match_score
         job.recommendation = analysis.recommendation
-        job.analysis = analysis.model_dump(mode="json")
+        job.analysis = {**analysis.model_dump(mode="json"), "profile_version": profile_version}
         job.analyzed_at = datetime.now(timezone.utc)
         job.analysis_model = f"{provider}:{model}" if model else provider
         job.analysis_error = ""
@@ -73,7 +73,7 @@ class JobAnalyzer:
             cached = self.cache.get(db, TASK_ANALYSIS, job_hash, profile.version, prompt_version)
             if cached is not None:
                 analysis = JobAnalysis.model_validate(cached.result)
-                self.apply_analysis(job, analysis, cached.model, cached.provider)
+                self.apply_analysis(job, analysis, cached.model, cached.provider, profile.version)
                 db.commit()
                 log_event("AI_CACHE_HIT", task=TASK_ANALYSIS, job_id=job.id)
                 return analysis
@@ -95,7 +95,7 @@ class JobAnalyzer:
             log_event("AI_ANALYSIS_FAILED", job_id=job.id, error=str(e)[:300], level=logging.WARNING)
             raise AnalysisFailed(str(e)) from e
 
-        self.apply_analysis(job, analysis, meta.model, meta.provider)
+        self.apply_analysis(job, analysis, meta.model, meta.provider, profile.version)
         self.cache.put(
             db, task=TASK_ANALYSIS, job_hash=job_hash, profile_version=profile.version, prompt_version=prompt_version,
             model=meta.model, provider=meta.provider, result=analysis.model_dump(mode="json"), usage=meta.usage,
