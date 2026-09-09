@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 from datetime import datetime, time, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..config import get_settings
 from ..models import Application, ApplicationStatus, Job, JobPipelineStatus, JobUserAction, Recommendation, SearchRun
 from ..schemas.dashboard import DashboardCounts, DashboardResponse
 from .job_service import job_to_summary
@@ -13,13 +15,20 @@ from .job_service import job_to_summary
 STRONG_MATCH_THRESHOLD = 75
 
 
-def _start_of_today() -> datetime:
-    now = datetime.now(timezone.utc)
-    return datetime.combine(now.date(), time.min, tzinfo=timezone.utc)
+def _start_of_today(tz_name: str | None = None) -> datetime:
+    """Midnight of the user's local day (SCHEDULE_TIMEZONE), expressed in UTC."""
+    tz = timezone.utc
+    if tz_name:
+        try:
+            tz = ZoneInfo(tz_name)
+        except (ZoneInfoNotFoundError, ValueError):
+            tz = timezone.utc
+    local_now = datetime.now(tz)
+    return datetime.combine(local_now.date(), time.min, tzinfo=tz).astimezone(timezone.utc)
 
 
 def build_dashboard(db: Session, ai_status: dict | None = None, sources: list[dict] | None = None) -> DashboardResponse:
-    today = _start_of_today()
+    today = _start_of_today(get_settings().schedule_timezone)
     visible = (Job.user_action != JobUserAction.DISMISSED) & (Job.duplicate_of_id.is_(None))
 
     def count(stmt):

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 
 from sqlalchemy.orm import Session
 
@@ -76,6 +77,18 @@ def _term_supported(term: str, known: set[str], corpus_norm: str) -> bool:
     if any(t in k or k in t for k in known if len(k) >= 3 and len(t) >= 3):
         return True
     return f" {t} " in f" {corpus_norm} "
+
+
+def _fuzzy_in(item: str, known: list[str], threshold: float = 0.75) -> bool:
+    """True when `item` is (a light rewording of) one of `known`."""
+    a = _norm(item)
+    if not a:
+        return False
+    for k in known:
+        b = _norm(k)
+        if a == b or (a in b) or (b in a) or SequenceMatcher(None, a, b).ratio() >= threshold:
+            return True
+    return False
 
 
 def _numbers_supported(text: str, corpus: str) -> bool:
@@ -152,12 +165,10 @@ def ground_resume(resume: TailoredResume, profile: Profile) -> tuple[TailoredRes
         for e in (profile.education or [])
         if e.get("degree")
     ]
-    certs_known = {_norm(c) for c in (profile.certifications or [])}
-    dropped_certs = [c for c in resume.certifications if _norm(c) not in certs_known]
+    dropped_certs = [c for c in resume.certifications if not _fuzzy_in(c, profile.certifications or [])]
     removed.extend(f"certification '{c}'" for c in dropped_certs)
     resume.certifications = list(profile.certifications or [])
-    ach_known = {_norm(a) for a in (profile.achievements or [])}
-    dropped_ach = [a for a in resume.achievements if _norm(a) not in ach_known]
+    dropped_ach = [a for a in resume.achievements if not _fuzzy_in(a, profile.achievements or [])]
     removed.extend(f"achievement '{a}'" for a in dropped_ach)
     resume.achievements = list(profile.achievements or [])
 

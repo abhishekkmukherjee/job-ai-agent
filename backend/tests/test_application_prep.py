@@ -204,3 +204,16 @@ async def test_profile_change_regenerates_answers_but_keeps_user_edits(client, d
     # explicit override regenerates everything
     body = client.post(f"/api/applications/{app_id}/prepare", json={"questions": qs, "regenerate_answers": True}).json()
     assert body["answers"][0]["answer"].endswith("(v3)")
+
+
+def test_ground_resume_tolerates_reworded_achievements(db):
+    profile = db.execute(select(Profile)).scalars().one()
+    profile.achievements = ["Writing: engineering articles covering RAG systems, async AI workloads and computer vision."]
+    profile.certifications = ["AWS Certified Developer - Associate (2024)"]
+    r = TailoredResume.model_validate({
+        "achievements": ["Writing: engineering articles on RAG systems, async AI workloads and computer vision.", "Won a Nobel prize"],
+        "certifications": ["AWS Certified Developer Associate", "CKA"],
+    })
+    r, removed = ground_resume(r, profile)
+    assert r.achievements == profile.achievements and r.certifications == profile.certifications
+    assert removed == ["certification 'CKA'", "achievement 'Won a Nobel prize'"]

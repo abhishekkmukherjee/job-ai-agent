@@ -128,3 +128,16 @@ def test_interrupted_runs_are_failed_on_startup(db):
     statuses = sorted(r.status.value for r in db.query(SearchRun).all())
     assert statuses == ["COMPLETED", "FAILED"]
     assert fail_interrupted_runs(db) == 0
+
+
+def test_start_of_today_uses_local_timezone():
+    from datetime import timezone
+
+    from app.services.dashboard_service import _start_of_today
+
+    utc_midnight = _start_of_today(None)
+    ist_midnight = _start_of_today("Asia/Kolkata")
+    assert utc_midnight.tzinfo == timezone.utc and ist_midnight.tzinfo == timezone.utc
+    # IST midnight is 18:30 UTC the previous day
+    assert ist_midnight.hour == 18 and ist_midnight.minute == 30
+    assert _start_of_today("Not/AZone") == utc_midnight
