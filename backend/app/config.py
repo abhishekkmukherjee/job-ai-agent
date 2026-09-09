@@ -116,7 +116,17 @@ class Settings(BaseSettings):
     @field_validator("database_url")
     @classmethod
     def _ensure_sqlite_dir(cls, value: str) -> str:
-        """Resolve relative SQLite paths against the project root (not the process cwd)."""
+        """Normalise the database URL.
+
+        * Relative SQLite paths resolve against the project root (not the process cwd).
+        * Plain ``postgresql://`` / ``postgres://`` URLs (what Supabase, Neon and Heroku
+          hand out) are routed to the psycopg 3 driver that ships in requirements-postgres.txt.
+        """
+        value = (value or "").strip()
+        if value.startswith("postgres://"):
+            value = "postgresql://" + value[len("postgres://"):]
+        if value.startswith("postgresql://"):
+            value = "postgresql+psycopg://" + value[len("postgresql://"):]
         if value.startswith("sqlite:///") and ":memory:" not in value:
             raw = value[len("sqlite:///"):]
             path = Path(raw)

@@ -226,7 +226,7 @@ cd backend
 |-------|---------------------|
 | Frontend | `npm run build` -> upload `frontend/dist` to **Cloudflare Pages** (set the API origin via a Pages proxy / `_redirects`, or keep serving it from the backend). |
 | Backend | Any small always-on host: Fly.io / Render free tier / a tiny VPS with `docker compose up -d`. The backend is a normal ASGI app; it is not a Cloudflare Worker (Playwright + SQLAlchemy need a Python runtime). |
-| Database | SQLite volume (default). Move to Postgres (Neon / Supabase free tier) by changing `DATABASE_URL` and installing `requirements-postgres.txt`. Cloudflare D1 would need a driver; the code only depends on SQLAlchemy. |
+| Database | SQLite volume (default). Move to Postgres (Supabase / Neon free tier) by changing `DATABASE_URL` and installing `requirements-postgres.txt` - see section 9. Cloudflare D1 would need a driver; the code only depends on SQLAlchemy. |
 | Scheduler | In-process APScheduler when the backend runs 24/7, **or** the included GitHub Actions workflow (`.github/workflows/daily-search.yml`) running `scripts/run_search.py` against a hosted Postgres, **or** any cron calling `python scripts/run_search.py`. |
 | Browser agent | Run locally (headed) so you can review and submit. Headless works in Docker for testing only. |
 
@@ -234,7 +234,38 @@ Everything works fully locally with no cloud configured.
 
 ---
 
-## 9. Safety and limits
+## 9. Hosted database (Supabase) + scheduled runs with the computer off
+
+1. In Supabase open **Connect** and copy the **Session pooler** string
+   (`postgresql://postgres.<ref>:[YOUR-PASSWORD]@aws-0-<region>.pooler.supabase.com:5432/postgres`).
+   Use the pooler, not the "direct" `db.<ref>.supabase.co` host: the direct host may only be
+   reachable over IPv6, which GitHub Actions runners do not have. Replace `[YOUR-PASSWORD]`
+   with the database password from **Settings -> Database** (the API keys are not the password).
+2. Check the connection and create the tables:
+   ```powershell
+   .\.venv\Scripts\python.exe -m pip install -r requirements-postgres.txt
+   $env:DATABASE_URL="postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres"
+   .\.venv\Scripts\python.exe scripts\check_db.py
+   ```
+3. Optional - copy what you already have locally (profile, jobs, applications, AI cache):
+   ```powershell
+   .\.venv\Scripts\python.exe scripts\migrate_sqlite_to_postgres.py --target "postgresql://...same string..."
+   ```
+4. Put the same `DATABASE_URL` in `.env` so the dashboard on your laptop reads the shared database.
+5. On GitHub -> repository **Settings -> Secrets and variables -> Actions** add secrets:
+   `DATABASE_URL`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY` (and optionally `ADZUNA_APP_ID`,
+   `ADZUNA_APP_KEY`, `SMTP_*`, `TELEGRAM_*`). Add variables `NOTIFICATION_PROVIDERS`
+   (e.g. `console,telegram`) and `DASHBOARD_URL` if you want them in the report.
+6. Run the workflow once by hand (**Actions -> daily-job-search -> Run workflow**). From then on
+   it runs at 08:00 IST daily; open the dashboard locally whenever you like and the scored jobs
+   are already there.
+
+Never paste the database password or API keys into chat, issues or commits; rotate any key that
+was exposed.
+
+---
+
+## 10. Safety and limits
 
 * Never bypasses CAPTCHAs, logins, rate limits or anti-bot systems; only public/documented APIs.
 * Never submits an application; never fabricates resume content or answers.

@@ -11,7 +11,14 @@ def test_absolute_and_memory_sqlite_paths_untouched(tmp_path):
     absolute = (tmp_path / "x.db").as_posix()
     assert Settings(database_url=f"sqlite:///{absolute}").database_url == f"sqlite:///{absolute}"
     assert Settings(database_url="sqlite:///:memory:").database_url == "sqlite:///:memory:"
-    assert Settings(database_url="postgresql+psycopg://u:p@h/db").database_url.startswith("postgresql")
+    assert Settings(database_url="postgresql+psycopg://u:p@h/db").database_url == "postgresql+psycopg://u:p@h/db"
+
+
+def test_plain_postgres_urls_use_psycopg_driver():
+    assert Settings(database_url="postgresql://postgres.ref:pw@aws-0-ap-south-1.pooler.supabase.com:5432/postgres").database_url == (
+        "postgresql+psycopg://postgres.ref:pw@aws-0-ap-south-1.pooler.supabase.com:5432/postgres"
+    )
+    assert Settings(database_url="postgres://u:p@h/db").database_url == "postgresql+psycopg://u:p@h/db"
 
 
 def test_env_example_lists_every_documented_key():
