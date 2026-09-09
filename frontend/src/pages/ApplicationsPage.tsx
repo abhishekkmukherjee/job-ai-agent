@@ -2,6 +2,17 @@ import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { Empty, ErrorAlert, Loading, ScoreBadge, StatusBadge, formatDate, useAsync, useToast } from "../components/common";
+import type { Application } from "../types";
+
+function howApplied(a: Application): string {
+  const fr = (a.fill_result || {}) as Record<string, any>;
+  if (fr.channel === "email") return `email (auto) to ${fr.to || "?"}`;
+  if (fr.auto_submit && fr.submitted) return "form (auto)";
+  if (fr.mode === "assist") return "assisted (you)";
+  if (fr.auto_apply === "blocked_domain") return `manual (${fr.domain || "site blocks automation"})`;
+  if (a.status === "APPLIED") return "manual";
+  return "-";
+}
 
 const STATUSES = ["DISCOVERED", "SHORTLISTED", "APPROVED", "PREPARING", "READY_TO_APPLY", "APPLIED", "INTERVIEW", "OFFER", "REJECTED", "WITHDRAWN"];
 
@@ -66,7 +77,7 @@ export default function ApplicationsPage() {
           <table>
             <thead>
               <tr>
-                <th>Role</th><th>Company</th><th>Score</th><th>Status</th><th>Applied</th><th>Follow-up</th><th>Resume</th><th></th>
+                <th>Role</th><th>Company</th><th>Score</th><th>Status</th><th>How</th><th>Applied</th><th>Follow-up</th><th>Resume</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -79,6 +90,7 @@ export default function ApplicationsPage() {
                   <td>{a.company}</td>
                   <td><ScoreBadge score={a.match_score} /></td>
                   <td><StatusBadge status={a.status} /></td>
+                  <td className="small">{howApplied(a)}</td>
                   <td>{formatDate(a.applied_at)}</td>
                   <td>{formatDate(a.follow_up_date)}</td>
                   <td>{a.has_resume_pdf ? <a href={`/api/applications/${a.id}/resume.pdf`} target="_blank" rel="noreferrer">PDF</a> : <span className="muted">-</span>}</td>

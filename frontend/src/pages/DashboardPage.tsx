@@ -77,7 +77,7 @@ export default function DashboardPage() {
         <Stat label="Recommended" value={c.recommended_applications} hint="APPLY recommendation" />
         <Stat label="Pending review" value={c.pending_review} hint="REVIEW recommendation" />
         <Stat label="Ready to apply" value={c.ready_to_apply} hint="prepared, awaiting you" />
-        <Stat label="Applications" value={c.applications_submitted} hint="submitted" />
+        <Link to="/applications?status=APPLIED" style={{ textDecoration: "none", color: "inherit" }}><Stat label="Applications" value={c.applications_submitted} hint="submitted - click to see where" /></Link>
         <Stat label="Interviews" value={c.interviews} />
       </div>
 
