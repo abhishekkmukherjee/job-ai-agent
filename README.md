@@ -100,8 +100,9 @@ Copy `.env.example` to `.env`. Nothing secret is ever committed or shown in the 
 
 | Variable | Purpose |
 |----------|---------|
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | Gemini (default `gemini-2.5-flash`). Used for job analysis, resume tailoring, answers. |
-| `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | OpenRouter (default a free Llama model). Used for cheap classification + fallback. Run `python scripts/list_openrouter_free_models.py` to pick a free model. |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Gemini (default `gemini-2.5-flash`, fallback `gemini-2.5-flash-lite`). First choice for job analysis, resume tailoring, answers. |
+| `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | OpenRouter (default a free Gemma model). Fallback for everything. Run `python scripts/list_openrouter_free_models.py` to pick a free model. |
+| `GROQ_API_KEY`, `GROQ_MODEL` | Groq (free tier, very fast open models). First choice for cheap classification, second choice for everything else. |
 | `AI_ROUTE_*` | Provider chain per task, e.g. `AI_ROUTE_JOB_ANALYSIS=gemini,openrouter`. Entries may pin a model: `openrouter:google/gemma-3-27b-it:free`. |
 | `*_PROMPT_VERSION` | Bump to invalidate cached results for one task after editing a prompt in `/prompts`. |
 | `DATABASE_URL` | SQLite by default; `postgresql+psycopg://...` also works (`pip install -r requirements-postgres.txt`). |
@@ -111,7 +112,7 @@ Copy `.env.example` to `.env`. Nothing secret is ever committed or shown in the 
 | `NOTIFICATION_PROVIDERS` + `SMTP_*` / `TELEGRAM_*` | `console`, `email`, `telegram` - daily report channels. |
 | `BROWSER_HEADLESS`, `BROWSER_KEEP_OPEN` | Keep `false`/`true` locally so you can review and submit in the opened window. |
 
-At least one of `GEMINI_API_KEY` / `OPENROUTER_API_KEY` is required for AI features.
+At least one of `GEMINI_API_KEY` / `GROQ_API_KEY` / `OPENROUTER_API_KEY` is required for AI features.
 Everything else (discovery, rule filtering, tracker, dashboard) works without keys.
 
 ### Job sources

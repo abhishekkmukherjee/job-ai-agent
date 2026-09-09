@@ -66,7 +66,7 @@ export default function DashboardPage() {
 
       {ai && ai.configured_providers && ai.configured_providers.length === 0 && (
         <div className="alert alert-warning">
-          No AI provider configured. Add GEMINI_API_KEY and/or OPENROUTER_API_KEY to <code>.env</code> to enable job analysis and resume tailoring.
+          No AI provider configured. Add GEMINI_API_KEY, GROQ_API_KEY or OPENROUTER_API_KEY to <code>.env</code> to enable job analysis and resume tailoring.
         </div>
       )}
       {run && run.status === "FAILED" && <div className="alert alert-error">Last run failed: {run.error}</div>}

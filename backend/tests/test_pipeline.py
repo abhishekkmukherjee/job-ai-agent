@@ -113,7 +113,7 @@ async def test_pipeline_survives_ai_outage(db):
 
 
 async def test_pipeline_without_ai_provider(db):
-    settings = Settings(ai_route_job_analysis="gemini", ai_route_classification="openrouter", ai_route_fallback="", gemini_api_key="", openrouter_api_key="", job_sources_enabled="fakeboard")
+    settings = Settings(ai_route_job_analysis="gemini", ai_route_classification="openrouter", ai_route_fallback="", gemini_api_key="", openrouter_api_key="", groq_api_key="", job_sources_enabled="fakeboard")
     from app.ai.factory import build_ai_router
 
     analyzer = JobAnalyzer(build_ai_router(settings), settings)

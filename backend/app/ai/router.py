@@ -187,7 +187,7 @@ class AIRouter:
                 results[name] = {"ok": False, "error": "not configured"}
                 continue
             try:
-                resp = await provider.complete('Reply with exactly this JSON: {"ok": true}', json_mode=True, max_tokens=64)
+                resp = await provider.complete('Reply with exactly this JSON: {"ok": true}', json_mode=True, max_tokens=512)
                 Ping.model_validate(extract_json(resp.text))
                 results[name] = {"ok": True, "model": resp.model, "latency_ms": resp.latency_ms}
             except Exception as e:  # noqa: BLE001 - report every failure kind

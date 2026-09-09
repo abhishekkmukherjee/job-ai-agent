@@ -47,24 +47,29 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------- ai
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
-    gemini_fallback_model: str = "gemini-2.0-flash"
+    gemini_fallback_model: str = "gemini-2.5-flash-lite"
     gemini_thinking_budget: int | None = None  # set 0 to disable thinking on 2.5 models
     gemini_min_interval: float = 4.0  # seconds between requests (free tier ~15 RPM)
 
     openrouter_api_key: str = ""
-    openrouter_model: str = "meta-llama/llama-3.3-70b-instruct:free"
-    openrouter_fallback_model: str = "google/gemma-3-27b-it:free"
+    openrouter_model: str = "google/gemma-4-31b-it:free"
+    openrouter_fallback_model: str = "openrouter/free"
     openrouter_json_mode: bool = False
     openrouter_site_url: str = "http://localhost:8000"
     openrouter_app_name: str = "job-agent"
     openrouter_min_interval: float = 3.0  # seconds between requests (free models ~20 RPM)
 
+    groq_api_key: str = ""
+    groq_model: str = "openai/gpt-oss-120b"
+    groq_fallback_model: str = "openai/gpt-oss-20b"
+    groq_min_interval: float = 2.5  # free tier ~30 RPM
+
     # Model routing: comma separated provider chain per task type.
     # Each entry is "provider" or "provider:model".
-    ai_route_classification: str = "openrouter,gemini"
-    ai_route_job_analysis: str = "gemini,openrouter"
-    ai_route_resume_tailoring: str = "gemini,openrouter"
-    ai_route_application_questions: str = "gemini,openrouter"
+    ai_route_classification: str = "groq,openrouter,gemini"
+    ai_route_job_analysis: str = "gemini,groq,openrouter"
+    ai_route_resume_tailoring: str = "gemini,groq,openrouter"
+    ai_route_application_questions: str = "gemini,groq,openrouter"
     ai_route_fallback: str = "openrouter"
 
     ai_request_timeout: float = 60.0
@@ -156,6 +161,10 @@ class Settings(BaseSettings):
     @property
     def openrouter_configured(self) -> bool:
         return bool(self.openrouter_api_key)
+
+    @property
+    def groq_configured(self) -> bool:
+        return bool(self.groq_api_key)
 
 
 @lru_cache

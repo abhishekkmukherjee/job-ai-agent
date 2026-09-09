@@ -76,6 +76,7 @@ export default function SettingsPage() {
             <dl className="kv">
               <dt>Gemini</dt><dd>{e.gemini_configured ? <span className="badge badge-success">configured</span> : <span className="badge badge-warning">GEMINI_API_KEY missing</span>} <span className="muted small">{e.gemini_model}</span></dd>
               <dt>OpenRouter</dt><dd>{e.openrouter_configured ? <span className="badge badge-success">configured</span> : <span className="badge badge-warning">OPENROUTER_API_KEY missing</span>} <span className="muted small">{e.openrouter_model}</span></dd>
+              <dt>Groq</dt><dd>{e.groq_configured ? <span className="badge badge-success">configured</span> : <span className="badge">GROQ_API_KEY missing</span>} <span className="muted small">{e.groq_model}</span></dd>
               <dt>Routing</dt>
               <dd>
                 {e.ai && e.ai.routes ? (

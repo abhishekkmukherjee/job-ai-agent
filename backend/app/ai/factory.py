@@ -4,6 +4,7 @@ from __future__ import annotations
 from ..config import Settings
 from .base import AIProvider
 from .gemini import GeminiProvider
+from .groq import GroqProvider
 from .openrouter import OpenRouterProvider
 from .router import AIRouter
 
@@ -27,6 +28,13 @@ def build_providers(settings: Settings) -> dict[str, AIProvider]:
             json_mode_supported=settings.openrouter_json_mode,
             site_url=settings.openrouter_site_url,
             app_name=settings.openrouter_app_name,
+        ),
+        "groq": GroqProvider(
+            api_key=settings.groq_api_key,
+            default_model=settings.groq_model,
+            fallback_model=settings.groq_fallback_model,
+            timeout=settings.ai_request_timeout,
+            min_interval=settings.groq_min_interval,
         ),
     }
 

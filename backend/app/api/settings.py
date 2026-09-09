@@ -41,6 +41,8 @@ def env_summary(request: Request, db: Session = Depends(get_db)) -> dict:
         "gemini_model": s.gemini_model,
         "openrouter_configured": s.openrouter_configured,
         "openrouter_model": s.openrouter_model,
+        "groq_configured": s.groq_configured,
+        "groq_model": s.groq_model,
         "adzuna_configured": bool(s.adzuna_app_id and s.adzuna_app_key),
         "notification_providers": s.notification_provider_list,
         "smtp_configured": bool(s.smtp_host and s.smtp_to),

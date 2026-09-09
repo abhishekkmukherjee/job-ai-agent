@@ -24,7 +24,7 @@ PROMPT = 'Return exactly this JSON and nothing else: {"ok": true, "number": 42}'
 @pytest.mark.skipif(not os.getenv("GEMINI_API_KEY"), reason="GEMINI_API_KEY not set")
 async def test_gemini_roundtrip():
     provider = GeminiProvider(os.environ["GEMINI_API_KEY"], default_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"), min_interval=0)
-    resp = await provider.complete(PROMPT, json_mode=True, max_tokens=256)
+    resp = await provider.complete(PROMPT, json_mode=True, max_tokens=1024)
     assert Ping.model_validate(extract_json(resp.text)).number == 42
     assert resp.provider == "gemini"
 
@@ -35,5 +35,15 @@ async def test_openrouter_roundtrip():
     provider = OpenRouterProvider(
         os.environ["OPENROUTER_API_KEY"], default_model=os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"), min_interval=0
     )
-    resp = await provider.complete(PROMPT, json_mode=True, max_tokens=256)
+    resp = await provider.complete(PROMPT, json_mode=True, max_tokens=1024)
+    assert Ping.model_validate(extract_json(resp.text)).number == 42
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not os.getenv("GROQ_API_KEY"), reason="GROQ_API_KEY not set")
+async def test_groq_roundtrip():
+    from app.ai.groq import GroqProvider
+
+    provider = GroqProvider(os.environ["GROQ_API_KEY"], default_model=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"), min_interval=0)
+    resp = await provider.complete(PROMPT, json_mode=True, max_tokens=1024)
     assert Ping.model_validate(extract_json(resp.text)).number == 42

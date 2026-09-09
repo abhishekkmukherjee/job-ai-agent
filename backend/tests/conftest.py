@@ -23,6 +23,7 @@ os.environ["BROWSER_HEADLESS"] = "true"
 os.environ["NOTIFICATION_PROVIDERS"] = "console"
 os.environ.setdefault("GEMINI_API_KEY", "")
 os.environ.setdefault("OPENROUTER_API_KEY", "")
+os.environ.setdefault("GROQ_API_KEY", "")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

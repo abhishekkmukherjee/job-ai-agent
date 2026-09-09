@@ -97,3 +97,12 @@ async def test_router_without_configured_providers():
     with pytest.raises(AIUnavailableError):
         await router.complete_json("classification", "hi", Out)
     assert router.is_available() is False
+
+
+def test_factory_builds_all_providers():
+    from app.ai.factory import build_ai_router
+
+    router = build_ai_router(make_settings(gemini_api_key="", openrouter_api_key="", groq_api_key="g"))
+    assert set(router.providers) == {"gemini", "openrouter", "groq"}
+    assert router.configured_providers() == ["groq"]
+    assert router.providers["groq"].base_url.startswith("https://api.groq.com")
