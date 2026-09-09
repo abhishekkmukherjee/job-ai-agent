@@ -8,12 +8,13 @@ name: daily-job-search
 on:
   schedule:
     - cron: "30 2 * * *"      # 08:00 IST
+    - cron: "30 14 * * *"     # 20:00 IST - second pass for postings added during the day
   workflow_dispatch: {}
 
 jobs:
   search:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 150
     steps:
       - name: Check configuration
         id: check
@@ -66,6 +67,7 @@ jobs:
           DASHBOARD_URL: ${{ vars.DASHBOARD_URL || 'http://localhost:8000' }}
           APPLICATION_QUESTIONS_PROMPT_VERSION: "2"
           BROWSER_HEADLESS: "true"
+          AI_MAX_ANALYSES_PER_RUN: "150"
           BROWSER_KEEP_OPEN: "false"
           LOG_FORMAT: json
         run: python scripts/run_search.py
