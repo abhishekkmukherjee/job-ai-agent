@@ -15,6 +15,7 @@ from .container import build_components, shutdown_components
 from .database import init_db, session_scope
 from .logging_config import configure_logging, get_logger
 from .seed import seed_all
+from .services.run_service import fail_interrupted_runs
 
 logger = get_logger(__name__)
 
@@ -24,9 +25,12 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     configure_logging(settings.log_level, settings.log_format)
     init_db()
-    if settings.seed_on_startup:
-        with session_scope() as db:
+    with session_scope() as db:
+        if settings.seed_on_startup:
             seed_all(db, with_sample_jobs=settings.app_env != "production")
+        interrupted = fail_interrupted_runs(db)
+        if interrupted:
+            logger.warning("Marked %d search run(s) interrupted by a restart as FAILED", interrupted)
     await build_components(app)
     logger.info("%s started (env=%s)", settings.app_name, settings.app_env)
     try:

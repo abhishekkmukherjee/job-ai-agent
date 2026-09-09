@@ -115,3 +115,16 @@ def test_settings_roundtrip(client):
     r = client.get("/api/settings/env")
     assert r.status_code == 200
     assert "gemini_configured" in r.json()
+
+
+def test_interrupted_runs_are_failed_on_startup(db):
+    from app.models import SearchRun, SearchRunStatus
+    from app.services.run_service import fail_interrupted_runs
+
+    db.add(SearchRun(trigger="manual", status=SearchRunStatus.RUNNING))
+    db.add(SearchRun(trigger="manual", status=SearchRunStatus.COMPLETED))
+    db.commit()
+    assert fail_interrupted_runs(db) == 1
+    statuses = sorted(r.status.value for r in db.query(SearchRun).all())
+    assert statuses == ["COMPLETED", "FAILED"]
+    assert fail_interrupted_runs(db) == 0
