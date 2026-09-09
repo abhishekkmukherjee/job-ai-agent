@@ -83,17 +83,27 @@ class Settings(BaseSettings):
     # Prompt versions (part of the AI cache key)
     job_analysis_prompt_version: int = 1
     resume_tailoring_prompt_version: int = 1
-    application_questions_prompt_version: int = 1
+    application_questions_prompt_version: int = 2
     job_filtering_prompt_version: int = 1
 
     # ------------------------------------------------------------ discovery
-    job_sources_enabled: str = "remotive,arbeitnow,remoteok,jobicy,greenhouse,lever,ashby,adzuna"
+    job_sources_enabled: str = "remotive,arbeitnow,remoteok,jobicy,greenhouse,lever,ashby,adzuna,jsearch,jooble,email_alerts"
     job_source_timeout: float = 30.0
     job_source_max_per_source: int = 200
     job_user_agent: str = "job-agent/0.1 (personal job search assistant)"
     adzuna_app_id: str = ""
     adzuna_app_key: str = ""
     adzuna_country: str = "in"
+    rapidapi_key: str = ""            # JSearch on RapidAPI (LinkedIn / Indeed / Naukri listings via Google for Jobs)
+    jsearch_country: str = "in"
+    jooble_api_key: str = ""
+    imap_host: str = ""               # job-alert emails (LinkedIn / Naukri / Indeed) read over IMAP
+    imap_port: int = 993
+    imap_user: str = ""
+    imap_password: str = ""
+    imap_folder: str = "INBOX"
+    imap_days: int = 3
+    alert_senders: str = "linkedin.com,naukri.com,indeed.com,glassdoor.com,foundit.in,shine.com,instahyre.com,wellfound.com,hirist.com"
 
     # ------------------------------------------------------------ scheduler
     scheduler_enabled: bool = False
@@ -165,6 +175,10 @@ class Settings(BaseSettings):
     @property
     def groq_configured(self) -> bool:
         return bool(self.groq_api_key)
+
+    @property
+    def alert_sender_list(self) -> list[str]:
+        return [x.strip().lower() for x in self.alert_senders.split(",") if x.strip()]
 
 
 @lru_cache

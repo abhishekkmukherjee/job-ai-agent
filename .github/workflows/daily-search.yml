@@ -1,8 +1,8 @@
-# Scheduled discovery without keeping a server running.
+# Scheduled discovery + guarded auto-apply without keeping a server running.
 #
-# Requires a persistent database reachable from GitHub's runners, e.g. a free
-# hosted Postgres (Neon, Supabase) via the DATABASE_URL secret.  SQLite inside
-# the runner would be thrown away after every run.
+# Needs a persistent database reachable from GitHub's runners (Supabase / Neon
+# Postgres via the DATABASE_URL secret).  Chromium is installed so the browser
+# agent can fill and, when enabled in Settings, submit applications.
 name: daily-job-search
 
 on:
@@ -13,20 +13,20 @@ on:
 jobs:
   search:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Check configuration
         id: check
         env:
           HAS_DB: ${{ secrets.DATABASE_URL != '' }}
-          HAS_AI: ${{ secrets.GEMINI_API_KEY != '' || secrets.OPENROUTER_API_KEY != '' }}
+          HAS_AI: ${{ secrets.GEMINI_API_KEY != '' || secrets.OPENROUTER_API_KEY != '' || secrets.GROQ_API_KEY != '' }}
         run: |
           echo "ok=$HAS_DB" >> "$GITHUB_OUTPUT"
           if [ "$HAS_DB" != "true" ]; then
             echo "::warning::DATABASE_URL secret is not set - skipping the scheduled search. Add it under Settings -> Secrets and variables -> Actions."
           fi
           if [ "$HAS_AI" != "true" ]; then
-            echo "::warning::No GEMINI_API_KEY / OPENROUTER_API_KEY secret - jobs will be discovered and filtered but not scored."
+            echo "::warning::No AI key secret - jobs will be discovered and filtered but not scored."
           fi
       - uses: actions/checkout@v5
         if: steps.check.outputs.ok == 'true'
@@ -37,16 +37,25 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt -r requirements-postgres.txt
         if: steps.check.outputs.ok == 'true'
+      - name: Install Chromium for the browser agent
+        if: steps.check.outputs.ok == 'true'
+        run: python -m playwright install --with-deps chromium
       - name: Run discovery pipeline
         if: steps.check.outputs.ok == 'true'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL }}
           ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
           ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
-          NOTIFICATION_PROVIDERS: ${{ vars.NOTIFICATION_PROVIDERS || 'console' }}
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+          JOOBLE_API_KEY: ${{ secrets.JOOBLE_API_KEY }}
+          IMAP_HOST: ${{ secrets.IMAP_HOST }}
+          IMAP_USER: ${{ secrets.IMAP_USER }}
+          IMAP_PASSWORD: ${{ secrets.IMAP_PASSWORD }}
+          NOTIFICATION_PROVIDERS: ${{ vars.NOTIFICATION_PROVIDERS || 'console,telegram' }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
@@ -55,5 +64,8 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DASHBOARD_URL: ${{ vars.DASHBOARD_URL || 'http://localhost:8000' }}
+          APPLICATION_QUESTIONS_PROMPT_VERSION: "2"
+          BROWSER_HEADLESS: "true"
+          BROWSER_KEEP_OPEN: "false"
           LOG_FORMAT: json
         run: python scripts/run_search.py

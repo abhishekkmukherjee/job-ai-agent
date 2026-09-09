@@ -69,6 +69,25 @@ class SchedulerSettings(BaseModel):
     notify: bool = True
 
 
+class AutoApplySettings(BaseModel):
+    """Automatic submission - off by default.  Every guard must pass before a form is submitted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    min_score: int = Field(default=85, ge=0, le=100)
+    require_recommendation_apply: bool = False   # if True only APPLY (90+) jobs are auto-submitted
+    daily_cap: int = Field(default=5, ge=0, le=100)
+    allow_needs_review_answers: bool = False      # never submit answers the AI flagged for review
+    blocked_domains: list[str] = Field(
+        default_factory=lambda: [
+            "linkedin.com", "naukri.com", "indeed.com", "glassdoor.com", "monster.com", "foundit.in",
+            "shine.com", "instahyre.com", "hirist.com", "wellfound.com", "angel.co", "dice.com",
+        ]
+    )   # sites that require login / forbid automation: prepared for manual submission instead
+    notify_each: bool = True
+
+
 class RuntimeSettings(BaseModel):
     """Everything the user can tweak at runtime from the Settings page."""
 
@@ -77,6 +96,7 @@ class RuntimeSettings(BaseModel):
     filter_rules: FilterRules = Field(default_factory=FilterRules)
     career_pages: CareerPageCompanies = Field(default_factory=CareerPageCompanies)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
+    auto_apply: AutoApplySettings = Field(default_factory=AutoApplySettings)
     enabled_sources: list[str] | None = None   # None -> use env JOB_SOURCES_ENABLED
     search_queries: list[str] = Field(default_factory=list)  # extra search terms beyond target roles
     min_score_to_show: int = 0
@@ -88,6 +108,7 @@ class RuntimeSettingsUpdate(BaseModel):
     filter_rules: FilterRules | None = None
     career_pages: CareerPageCompanies | None = None
     scheduler: SchedulerSettings | None = None
+    auto_apply: AutoApplySettings | None = None
     enabled_sources: list[str] | None = None
     search_queries: list[str] | None = None
     min_score_to_show: int | None = None

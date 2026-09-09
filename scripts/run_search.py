@@ -15,8 +15,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
+from app.agents.application_preparer import ApplicationPreparer  # noqa: E402
 from app.agents.job_analyzer import JobAnalyzer  # noqa: E402
+from app.agents.question_answerer import QuestionAnswerer  # noqa: E402
+from app.agents.resume_tailor import ResumeTailor  # noqa: E402
 from app.ai.factory import build_ai_router  # noqa: E402
+from app.browser.agent import BrowserAgent  # noqa: E402
 from app.config import get_settings  # noqa: E402
 from app.database import init_db, session_scope  # noqa: E402
 from app.jobs.pipeline import JobPipeline  # noqa: E402
@@ -49,7 +53,13 @@ async def main() -> int:
         seed_all(db, with_sample_jobs=False)
 
     ai_router = build_ai_router(settings)
-    pipeline = JobPipeline(SourceRegistry(settings), JobAnalyzer(ai_router, settings), settings, notifier=build_notifier(settings))
+    answerer = QuestionAnswerer(ai_router, settings)
+    preparer = ApplicationPreparer(ResumeTailor(ai_router, settings), answerer)
+    browser_agent = BrowserAgent(settings, answerer)
+    pipeline = JobPipeline(
+        SourceRegistry(settings), JobAnalyzer(ai_router, settings), settings, notifier=build_notifier(settings),
+        preparer=preparer, browser_agent=browser_agent,
+    )
     sources = [s.strip() for s in args.sources.split(",")] if args.sources else None
     with session_scope() as db:
         run = await pipeline.run(
@@ -57,6 +67,7 @@ async def main() -> int:
             max_per_source=args.max_per_source,
         )
         print(json.dumps({"run_id": run.id, "status": run.status.value, "stats": run.stats, "error": run.error}, indent=2, default=str))
+        await browser_agent.shutdown()
         return 0 if run.status.value == "COMPLETED" else 1
 
 

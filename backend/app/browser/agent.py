@@ -1,17 +1,21 @@
-"""Playwright browser agent (spec section 10).
+"""Playwright browser agent (spec section 10) with an optional, heavily guarded auto-submit.
 
-    open URL -> inspect page -> identify form fields -> map to profile -> fill safe fields
+    open URL -> (follow the "Apply" link if the page is only a job description)
+    -> inspect page -> identify form fields -> map to profile -> fill safe fields
     -> upload resume -> answer text questions -> STOP before submission
 
-The browser window stays open (when not headless) so the user can review and press
-submit themselves.  The agent never clicks submit buttons, never bypasses CAPTCHAs
-or logins, and only runs our own small DOM-inspection script.
+Manual mode (default): the browser window stays open so the user reviews and submits.
+Auto mode (`submit=True`): the form is submitted ONLY when every guard passes -
+no CAPTCHA on the page, a real submit button, every required field filled, no
+answer flagged for review.  CAPTCHAs and logins are never bypassed.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -25,7 +29,7 @@ from ..models import Application, ApplicationStatus
 from ..schemas.application import FillResponse
 from ..services import application_service
 from ..services.profile_service import get_profile
-from .field_mapper import FillAction, FormField, looks_like_question, map_fields, match_existing_answer
+from .field_mapper import FillAction, FormField, looks_like_question, map_fields, match_existing_answer, submit_blockers
 
 SCAN_SCRIPT = """
 () => {
@@ -58,17 +62,29 @@ SCAN_SCRIPT = """
       selector: '[data-jobagent-idx="' + idx + '"]', kind: type, label: (label || '').slice(0, 200),
       name: el.getAttribute('name') || '', id: el.id || '', placeholder: el.getAttribute('placeholder') || '',
       aria_label: el.getAttribute('aria-label') || '', autocomplete: el.getAttribute('autocomplete') || '',
-      options: opts, required: !!el.required, value: String(el.value || '').slice(0, 100),
+      options: opts, required: !!el.required || el.getAttribute('aria-required') === 'true', value: String(el.value || '').slice(0, 100),
       accept: el.getAttribute('accept') || '', maxlength: el.maxLength > 0 ? el.maxLength : null,
     });
     idx++;
   }
-  const submits = Array.from(document.querySelectorAll('button, input[type="submit"]'))
-    .filter(b => /submit|apply|send|finish/i.test((b.innerText || b.value || '')))
-    .map(b => (b.innerText || b.value || '').trim()).slice(0, 5);
-  return { fields, submits, title: document.title };
+  const submitEls = Array.from(document.querySelectorAll('button, input[type="submit"]'))
+    .filter(b => visible(b) && /submit|apply|send|finish|complete application/i.test((b.innerText || b.value || '')) && !/apply with|autofill|linkedin|indeed/i.test((b.innerText || b.value || '')));
+  submitEls.forEach((b, i) => b.setAttribute('data-jobagent-submit', String(i)));
+  const submits = submitEls.map(b => (b.innerText || b.value || '').trim()).slice(0, 5);
+  const captcha = !!document.querySelector('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], .g-recaptcha, .h-captcha, .cf-turnstile, [data-sitekey], #captcha, [name*="captcha" i]');
+  const applyLinks = Array.from(document.querySelectorAll('a, button'))
+    .filter(a => visible(a) && /^\\s*(apply|apply now|apply for this job|apply to this position|i'm interested|easy apply)\\s*$/i.test((a.innerText || '').trim()))
+    .map(a => a.getAttribute('href') || '').filter(h => h && !h.startsWith('javascript'));
+  return { fields, submits, captcha, title: document.title, applyLinks: applyLinks.slice(0, 3), bodyText: (document.body ? document.body.innerText : '').slice(0, 4000) };
 }
 """
+
+SUCCESS_PATTERNS = re.compile(
+    r"thank you for (applying|your application|submitting)|application (has been |was )?(received|submitted|sent|complete)|"
+    r"successfully (applied|submitted)|we('ve| have) received your application|your application is (in|complete)|"
+    r"application submitted|you have applied|thanks for applying",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -79,6 +95,16 @@ class BrowserSession:
     context: Any
     page: Any
     frames: list[Any] = field(default_factory=list)
+
+
+@dataclass
+class ScanResult:
+    fields: list[FormField]
+    submits: list[str]
+    captcha: bool
+    title: str
+    apply_links: list[str]
+    body_text: str
 
 
 class BrowserAgent:
@@ -130,12 +156,15 @@ class BrowserAgent:
             raise ValueError("Application URL must start with http://, https:// or file://")
         return url
 
-    async def fill_application(self, db: Session, app: Application, url: str | None = None, headless: bool | None = None) -> FillResponse:
+    async def fill_application(
+        self, db: Session, app: Application, url: str | None = None, headless: bool | None = None, submit: bool = False
+    ) -> FillResponse:
         target = self._validate_url(url or app.job_url)
         headless = self.settings.browser_headless if headless is None else headless
         profile = get_profile(db)
         resume_path = app.resume_path if app.resume_path and Path(app.resume_path).exists() else None
-        log_event("APPLICATION_STARTED", application_id=app.id, url=target, stage="browser_fill")
+        job_remote = app.job.remote_type.value if app.job is not None and app.job.remote_type else None
+        log_event("APPLICATION_STARTED", application_id=app.id, url=target, stage="browser_fill", auto_submit=submit)
 
         async with self._lock:
             await self.close_session(app.id)
@@ -150,14 +179,26 @@ class BrowserAgent:
             try:
                 await page.goto(target, wait_until="domcontentloaded")
                 await page.wait_for_timeout(800)  # let client-side forms render
-                fields, submits, title = await self._scan(session)
-                actions, question_fields, unmatched = map_fields(fields, profile, resume_path, app.cover_note or "")
+                scan = await self._scan_or_follow_apply(session)
+                actions, question_fields, unmatched = map_fields(scan.fields, profile, resume_path, app.cover_note or "", job_remote)
                 answer_actions, unanswered = await self._plan_answers(db, app, question_fields)
                 actions.extend(answer_actions)
                 unmatched.extend(unanswered)
                 filled = await self._apply(session, actions)
-                submitted = await self._detect_submission(page)
-                result = self._build_result(app, actions, unmatched, submits, title, filled, resume_path, keep_open=(self.settings.browser_keep_open and not headless), submitted=submitted)
+                blockers = submit_blockers(actions, unmatched, scan.submits, scan.captcha, len(scan.fields))
+                submitted = False
+                evidence = ""
+                if submit and not blockers:
+                    submitted, evidence = await self._submit(session)
+                    if not submitted:
+                        blockers.append(f"submission not confirmed: {evidence or 'no success message detected'}")
+                elif not submit:
+                    submitted = await self._detect_marker(page)
+                result = self._build_result(
+                    actions, unmatched, scan, filled, resume_path,
+                    keep_open=(self.settings.browser_keep_open and not headless and not submit),
+                    submitted=submitted, evidence=evidence, blockers=blockers, final_url=page.url,
+                )
             except Exception as e:  # noqa: BLE001
                 app.last_error = f"Browser fill failed: {type(e).__name__}: {e}"[:1000]
                 db.commit()
@@ -165,24 +206,36 @@ class BrowserAgent:
                 await self.close_session(app.id)
                 return FillResponse(ok=False, message=app.last_error)
 
-            if not (self.settings.browser_keep_open and not headless):
+            if not result.browser_open:
                 await self.close_session(app.id)
 
-        app.fill_result = result.model_dump()
+        app.fill_result = {**result.model_dump(), "at": datetime.now(timezone.utc).isoformat(), "auto_submit": submit}
         app.last_error = ""
-        if app.status in (ApplicationStatus.APPROVED, ApplicationStatus.PREPARING):
+        if result.submitted and submit:
+            if app.status in (ApplicationStatus.DISCOVERED, ApplicationStatus.SHORTLISTED):
+                application_service.transition_status(db, app, ApplicationStatus.APPROVED, note="auto-apply")
+            if app.status in (ApplicationStatus.APPROVED, ApplicationStatus.PREPARING):
+                application_service.transition_status(db, app, ApplicationStatus.READY_TO_APPLY, note="form filled by the browser agent")
+            if app.status != ApplicationStatus.APPLIED:
+                application_service.transition_status(db, app, ApplicationStatus.APPLIED, note="auto-submitted by the browser agent")
+        elif app.status in (ApplicationStatus.APPROVED, ApplicationStatus.PREPARING):
             application_service.transition_status(db, app, ApplicationStatus.READY_TO_APPLY, note="form filled, awaiting manual submit")
         db.commit()
         log_event(
-            "APPLICATION_FILLED", application_id=app.id, fields_filled=result.fields_filled,
-            questions_answered=result.questions_answered, resume_uploaded=result.resume_uploaded, unmatched=len(result.unmatched_fields),
+            "APPLICATION_SUBMITTED" if (result.submitted and submit) else "APPLICATION_FILLED",
+            application_id=app.id, fields_filled=result.fields_filled, questions_answered=result.questions_answered,
+            resume_uploaded=result.resume_uploaded, unmatched=len(result.unmatched_fields), blockers=result.blockers[:5],
         )
         return result
 
-    async def _scan(self, session: BrowserSession) -> tuple[list[FormField], list[str], str]:
+    # ---------------------------------------------------------------- scan
+    async def _scan(self, session: BrowserSession) -> ScanResult:
         fields: list[FormField] = []
         submits: list[str] = []
+        apply_links: list[str] = []
+        captcha = False
         title = ""
+        body_text = ""
         session.frames = []
         for idx, frame in enumerate(session.page.frames):
             try:
@@ -194,10 +247,32 @@ class BrowserAgent:
             for d in data.get("fields", []):
                 fields.append(FormField.from_dict(d, frame=frame_index))
             submits.extend(data.get("submits", []))
+            captcha = captcha or bool(data.get("captcha"))
             if idx == 0:
                 title = data.get("title", "")
-        return fields, submits, title
+                body_text = data.get("bodyText", "") or ""
+                apply_links = data.get("applyLinks", []) or []
+        return ScanResult(fields, submits, captcha, title, apply_links, body_text)
 
+    async def _scan_or_follow_apply(self, session: BrowserSession, max_hops: int = 2) -> ScanResult:
+        """Job-board pages often show the description with an 'Apply' link to the real form."""
+        scan = await self._scan(session)
+        hops = 0
+        while len(scan.fields) < 3 and scan.apply_links and hops < max_hops:
+            href = scan.apply_links[0]
+            try:
+                if href.startswith("#"):
+                    await session.page.click(f"a[href='{href}']", timeout=5000)
+                else:
+                    await session.page.goto(href if href.startswith("http") else session.page.url.rsplit("/", 1)[0] + "/" + href.lstrip("/"), wait_until="domcontentloaded")
+                await session.page.wait_for_timeout(1200)
+            except Exception:  # noqa: BLE001
+                break
+            hops += 1
+            scan = await self._scan(session)
+        return scan
+
+    # ------------------------------------------------------------- answers
     async def _plan_answers(self, db: Session, app: Application, question_fields: list[FormField]) -> tuple[list[FillAction], list[FormField]]:
         actions: list[FillAction] = []
         unanswered: list[FormField] = []
@@ -236,6 +311,7 @@ class BrowserAgent:
             unanswered.extend(need_ai)
         return actions, unanswered
 
+    # --------------------------------------------------------------- apply
     async def _apply(self, session: BrowserSession, actions: list[FillAction]) -> int:
         filled = 0
         for act in actions:
@@ -262,34 +338,86 @@ class BrowserAgent:
                 act.note = f"{type(e).__name__}: {str(e)[:120]}"
         return filled
 
+    # -------------------------------------------------------------- submit
+    async def _submit(self, session: BrowserSession) -> tuple[bool, str]:
+        """Click the submit button and look for evidence of success.  Only called when no blockers exist."""
+        page = session.page
+        before_url = page.url
+        clicked = False
+        for frame in session.frames or [page]:
+            try:
+                btn = frame.locator("[data-jobagent-submit='0']").first
+                if await btn.count() > 0:
+                    await btn.click(timeout=10000)
+                    clicked = True
+                    break
+            except Exception:  # noqa: BLE001
+                continue
+        if not clicked:
+            return False, "could not click the submit button"
+        try:
+            await page.wait_for_load_state("networkidle", timeout=15000)
+        except Exception:  # noqa: BLE001 - some pages never go idle
+            pass
+        await page.wait_for_timeout(1500)
+        if await self._detect_marker(page):
+            return True, "page marked the application as submitted"
+        try:
+            body = await page.evaluate("() => document.body ? document.body.innerText.slice(0, 6000) : ''")
+        except Exception:  # noqa: BLE001
+            body = ""
+        m = SUCCESS_PATTERNS.search(body or "")
+        if m:
+            return True, f"success message: '{m.group(0)}'"
+        try:
+            remaining = await page.evaluate("() => document.querySelectorAll('[data-jobagent-idx]').length")
+        except Exception:  # noqa: BLE001
+            remaining = -1
+        if page.url != before_url and remaining == 0:
+            return True, f"form disappeared after navigation to {page.url}"
+        try:
+            errors = await page.evaluate(
+                "() => Array.from(document.querySelectorAll('[aria-invalid=\"true\"], .error, .field-error, [role=alert]')).map(e => (e.innerText||'').trim()).filter(Boolean).slice(0,3)"
+            )
+        except Exception:  # noqa: BLE001
+            errors = []
+        if errors:
+            return False, "form reported errors: " + "; ".join(str(e)[:80] for e in errors)
+        return False, "no confirmation message after clicking submit"
+
     @staticmethod
-    async def _detect_submission(page: Any) -> bool:
+    async def _detect_marker(page: Any) -> bool:
         try:
             marker = page.locator("[data-submitted='1']")
             return await marker.count() > 0
         except Exception:  # noqa: BLE001
             return False
 
+    # -------------------------------------------------------------- result
     @staticmethod
     def _build_result(
-        app: Application, actions: list[FillAction], unmatched: list[FormField], submits: list[str], title: str,
-        filled: int, resume_path: str | None, keep_open: bool, submitted: bool,
+        actions: list[FillAction], unmatched: list[FormField], scan: ScanResult, filled: int, resume_path: str | None,
+        keep_open: bool, submitted: bool, evidence: str, blockers: list[str], final_url: str,
     ) -> FillResponse:
         questions_answered = sum(1 for a in actions if a.source == "answer" and a.status == "filled")
         resume_uploaded = any(a.action == "upload" and a.status == "uploaded" for a in actions)
         failed = [a for a in actions if a.status == "failed"]
-        msg = f"Filled {filled} field(s) on '{title or 'page'}'."
+        msg = f"Filled {filled} field(s) on '{scan.title or 'page'}'."
         if failed:
             msg += f" {len(failed)} field(s) could not be filled."
         if unmatched:
             msg += f" {len(unmatched)} field(s) need your input."
-        msg += " The form was NOT submitted"
-        msg += f" - submit button(s) found: {', '.join(submits)}." if submits else "."
-        if submitted:
-            msg += " WARNING: the page reports a submission; please verify."
+        if submitted and evidence:
+            msg += f" SUBMITTED ({evidence})."
+        elif blockers:
+            msg += " Not submitted: " + "; ".join(blockers[:3]) + "."
+        else:
+            msg += " The form was NOT submitted"
+            msg += f" - submit button(s) found: {', '.join(scan.submits)}." if scan.submits else "."
         return FillResponse(
             ok=True, message=msg, fields_filled=filled, questions_answered=questions_answered,
             resume_uploaded=resume_uploaded, fields=[a.to_dict() for a in actions],
-            unmatched_fields=[{"label": f.label or f.placeholder or f.aria_label, "selector": f.selector, "kind": f.kind, "name": f.name} for f in unmatched],
+            unmatched_fields=[{"label": f.display, "selector": f.selector, "kind": f.kind, "name": f.name, "required": f.required} for f in unmatched],
             browser_open=keep_open, resume=Path(resume_path).name if resume_path else "",
+            submitted=submitted, submit_evidence=evidence, blockers=blockers, final_url=final_url, captcha_detected=scan.captcha,
         )

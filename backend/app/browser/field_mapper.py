@@ -2,7 +2,7 @@
 
 No LLM is involved here: labels, names, ids, placeholders and autocomplete hints
 are matched against keyword rules.  Anything that is not clearly safe to fill
-(legal consent, EEO questions, ambiguous selects) is left for the user.
+(EEO questions, legal identifiers, ambiguous selects) is left for the user.
 """
 from __future__ import annotations
 
@@ -34,6 +34,10 @@ class FormField:
     def text(self) -> str:
         return " ".join(x for x in [self.label, self.name, self.id, self.placeholder, self.aria_label, self.autocomplete] if x).lower()
 
+    @property
+    def display(self) -> str:
+        return self.label or self.placeholder or self.aria_label or self.name or self.id or self.selector
+
     @classmethod
     def from_dict(cls, d: dict[str, Any], frame: int = 0) -> "FormField":
         return cls(
@@ -50,7 +54,7 @@ class FillAction:
     field: FormField
     action: str          # fill|select|upload|check|answer
     value: str
-    source: str          # profile attribute / "answer" / "resume"
+    source: str          # profile attribute / "answer" / "resume" / "consent"
     status: str = "planned"
     note: str = ""
 
@@ -59,7 +63,7 @@ class FillAction:
             "label": self.field.label or self.field.name or self.field.id or self.field.selector,
             "selector": self.field.selector, "kind": self.field.kind, "action": self.action,
             "value": self.value if self.action != "upload" else self.value.rsplit("/", 1)[-1].rsplit("\\", 1)[-1],
-            "source": self.source, "status": self.status, "note": self.note,
+            "source": self.source, "status": self.status, "note": self.note, "required": self.field.required,
         }
 
 
@@ -73,6 +77,8 @@ _SKIP_PATTERNS = (
     "date of birth", "dob", "age", "marital", "caste", "aadhaar", "passport", "ssn", "social security",
     "credit card", "otp", "verification code",
 )
+_CONSENT_WORDS = ("agree", "consent", "privacy", "terms", "accept", "acknowledge", "confirm that", "i certify", "gdpr")
+_MARKETING_WORDS = ("marketing", "newsletter", "promotional", "subscribe", "updates about", "talent community", "future opportunities")
 
 
 def _split_name(full_name: str) -> tuple[str, str]:
@@ -120,6 +126,25 @@ def _years_candidates(years: float) -> list[str]:
     return [f"{y}-", f"{y} ", str(y), f"{y}+", f"{max(y - 1, 0)}-{y + 1}", f"{max(y - 2, 0)}-{y + 2}"]
 
 
+def _lpa(amount: int | float) -> str:
+    return f"{float(amount) / 100000.0:g} LPA"
+
+
+def salary_value(profile: Profile, job_remote_type: str | None, numeric: bool, current: bool = False) -> str:
+    """Salary figure for a form field, chosen by the job's work mode."""
+    cur = (profile.salary_currency or "INR").upper()
+    if current:
+        if profile.current_salary:
+            return str(int(profile.current_salary)) if numeric else f"{_lpa(profile.current_salary)} ({cur})"
+        return ""
+    remote = (job_remote_type or "").lower() == "remote"
+    amount = profile.salary_expectation_remote if remote else profile.salary_expectation_onsite
+    amount = amount or profile.salary_expectation_onsite or profile.salary_expectation_remote or profile.minimum_salary
+    if amount:
+        return str(int(amount)) if numeric else f"{_lpa(amount)} ({cur})"
+    return "" if numeric else (profile.expected_salary or "")
+
+
 def looks_like_question(f: FormField) -> bool:
     t = (f.label or f.placeholder or f.aria_label or "").strip()
     if not t:
@@ -132,7 +157,9 @@ def looks_like_question(f: FormField) -> bool:
     )
 
 
-def map_fields(fields: list[FormField], profile: Profile, resume_path: str | None, cover_note: str = "") -> tuple[list[FillAction], list[FormField], list[FormField]]:
+def map_fields(
+    fields: list[FormField], profile: Profile, resume_path: str | None, cover_note: str = "", job_remote_type: str | None = None
+) -> tuple[list[FillAction], list[FormField], list[FormField]]:
     """Return (actions, question_fields, unmatched_fields)."""
     actions: list[FillAction] = []
     questions: list[FormField] = []
@@ -159,8 +186,15 @@ def map_fields(fields: list[FormField], profile: Profile, resume_path: str | Non
                 unmatched.append(f)
             continue
 
-        if kind in ("checkbox", "radio"):
-            unmatched.append(f)  # consent / EEO / yes-no questions stay with the user
+        if kind == "checkbox":
+            # Privacy / terms consent is required to submit at all; marketing opt-ins and EEO boxes stay untouched.
+            if _has(t, *_CONSENT_WORDS) and not _has(t, *_MARKETING_WORDS):
+                actions.append(FillAction(f, "check", "yes", "consent"))
+            else:
+                unmatched.append(f)
+            continue
+        if kind == "radio":
+            unmatched.append(f)  # yes/no and EEO questions stay with the user
             continue
 
         if kind == "select":
@@ -175,6 +209,8 @@ def map_fields(fields: list[FormField], profile: Profile, resume_path: str | Non
                 value = _choose_option(f.options, [profile.current_location, *profile.preferred_locations])
             elif _has(t, "remote", "work mode", "workplace"):
                 value = _choose_option(f.options, [profile.remote_preference] if profile.remote_preference != "any" else [])
+            elif _has(t, "authoriz", "eligible to work", "legally") and (profile.work_authorization or ""):
+                value = _choose_option(f.options, ["yes"])
             elif _has(t, "source", "hear about", "how did you"):
                 value = _choose_option(f.options, ["job board", "other", "website", "online"])
             if value:
@@ -195,6 +231,7 @@ def map_fields(fields: list[FormField], profile: Profile, resume_path: str | Non
         # plain inputs -------------------------------------------------------
         value: str | None = None
         source = "profile"
+        numeric = kind == "number"
         if kind == "email" or _has(t, "email", "e-mail") or f.autocomplete == "email":
             value = profile.email
         elif kind == "tel" or _has(t, "phone", "mobile", "contact number", "telephone", "whatsapp") or f.autocomplete == "tel":
@@ -213,8 +250,12 @@ def map_fields(fields: list[FormField], profile: Profile, resume_path: str | Non
             value = profile.portfolio_url or profile.github_url
         elif _has(t, "notice"):
             value = profile.notice_period
-        elif _has(t, "salary", "ctc", "compensation", "pay expectation"):
-            value = profile.expected_salary
+        elif _has(t, "current salary", "current ctc", "present salary", "current compensation", "current pay"):
+            value = salary_value(profile, job_remote_type, numeric, current=True)
+            source = "salary"
+        elif _has(t, "salary", "ctc", "compensation", "pay expectation", "expected pay"):
+            value = salary_value(profile, job_remote_type, numeric)
+            source = "salary"
         elif _has(t, "current company", "employer", "current organization", "organisation", "company name"):
             value = profile.current_company
         elif _has(t, "current title", "current role", "designation", "job title", "current position"):
@@ -257,3 +298,25 @@ def match_existing_answer(question: str, answers: list[dict[str, Any]]) -> dict[
         if overlap > best_score:
             best, best_score = a, overlap
     return best if best_score >= 0.5 else None
+
+
+def submit_blockers(
+    actions: list[FillAction], unmatched: list[FormField], submits: list[str], captcha: bool, fields_total: int
+) -> list[str]:
+    """Reasons why a filled form must NOT be submitted automatically.  Empty list = safe."""
+    blockers: list[str] = []
+    if fields_total == 0:
+        blockers.append("no form fields found on the page")
+    if captcha:
+        blockers.append("CAPTCHA present (never bypassed)")
+    if not submits:
+        blockers.append("no submit button found")
+    for f in unmatched:
+        if f.required:
+            blockers.append(f"required field not filled: {f.display[:60]}")
+    for a in actions:
+        if a.status == "failed" and a.field.required:
+            blockers.append(f"required field failed: {a.field.display[:60]}")
+        if a.status == "skipped" and a.field.required:
+            blockers.append(f"required field has no profile value: {a.field.display[:60]}")
+    return blockers

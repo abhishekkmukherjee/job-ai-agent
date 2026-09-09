@@ -71,7 +71,19 @@ export default function ProfilePage() {
             {text("Portfolio", "portfolio_url", "url")}
             {text("Years of experience", "years_of_experience", "number")}
             {text("Notice period", "notice_period")}
-            {text("Expected salary", "expected_salary")}
+            <div className="form-row">
+              <label>Current salary (annual)</label>
+              <input type="number" value={p.current_salary ?? ""} onChange={(e) => upd("current_salary", e.target.value ? Number(e.target.value) : null)} placeholder="e.g. 240000" />
+            </div>
+            <div className="form-row">
+              <label>Expected: remote (annual)</label>
+              <input type="number" value={p.salary_expectation_remote ?? ""} onChange={(e) => upd("salary_expectation_remote", e.target.value ? Number(e.target.value) : null)} placeholder="e.g. 650000" />
+            </div>
+            <div className="form-row">
+              <label>Expected: onsite / relocation</label>
+              <input type="number" value={p.salary_expectation_onsite ?? ""} onChange={(e) => upd("salary_expectation_onsite", e.target.value ? Number(e.target.value) : null)} placeholder="e.g. 700000" />
+            </div>
+            {text("Salary notes", "expected_salary")}
             {text("Work authorization", "work_authorization")}
             <div className="form-row">
               <label>Summary</label>

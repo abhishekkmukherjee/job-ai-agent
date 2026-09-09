@@ -1,6 +1,7 @@
 """The discovery pipeline (spec section 1).
 
-    Collect -> Normalize -> Dedupe -> Rule filter -> (cheap AI filter) -> AI analysis -> Notify
+    Collect -> Normalize -> Dedupe -> Rule filter -> (cheap AI filter) -> AI analysis
+    -> (guarded auto-apply, off by default) -> Notify
 
 Every stage isolates failures per source / per job: one bad posting is recorded in
 `pipeline_failures` and the run continues (spec section 19).
@@ -10,8 +11,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, time as dtime, timezone
 from typing import Any
+from urllib.parse import urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,8 +24,21 @@ from ..ai.base import AIUnavailableError
 from ..config import Settings
 from ..database import session_scope
 from ..logging_config import log_event
-from ..models import Job, JobPipelineStatus, JobUserAction, PipelineFailure, Profile, SearchRun, SearchRunStatus
+from ..models import (
+    Application,
+    ApplicationStatus,
+    Job,
+    JobPipelineStatus,
+    JobUserAction,
+    PipelineFailure,
+    Profile,
+    Recommendation,
+    SearchRun,
+    SearchRunStatus,
+)
+from ..schemas.application import ApplicationCreate
 from ..schemas.job import NormalizedJob
+from ..services import application_service
 from ..services.profile_service import get_profile
 from ..services.settings_service import get_runtime_settings
 from .dedupe import content_hash, find_duplicate
@@ -42,11 +58,15 @@ class JobPipeline:
         analyzer: JobAnalyzer | None,
         settings: Settings,
         notifier: Any | None = None,
+        preparer: Any | None = None,
+        browser_agent: Any | None = None,
     ):
         self.registry = registry
         self.analyzer = analyzer
         self.settings = settings
         self.notifier = notifier
+        self.preparer = preparer
+        self.browser_agent = browser_agent
         self.is_running = False
         self._lock = asyncio.Lock()
 
@@ -81,6 +101,14 @@ class JobPipeline:
         )
         db.commit()
 
+    async def _notify_event(self, title: str, lines: list[str], link: str | None = None) -> None:
+        if self.notifier is None or not hasattr(self.notifier, "send_event"):
+            return
+        try:
+            await self.notifier.send_event(title, lines, link)
+        except Exception as e:  # noqa: BLE001 - notifications never break the run
+            log_event("NOTIFICATION_FAILED", error=str(e)[:200], level=logging.WARNING)
+
     # ---------------------------------------------------------------- main
     async def run(
         self,
@@ -108,6 +136,7 @@ class JobPipeline:
                 await self._filter(db, run, profile, stats)
                 if analyze:
                     await self._analyze(db, run, profile, stats)
+                    await self._auto_apply(db, run, profile, stats)
                 if notify and self.notifier is not None:
                     try:
                         await self.notifier.send_daily_report(db, run, stats)
@@ -120,6 +149,7 @@ class JobPipeline:
                 run.status = SearchRunStatus.FAILED
                 run.error = f"{type(e).__name__}: {e}\n{traceback.format_exc()[-1500:]}"
                 log_event("SEARCH_RUN_COMPLETED", run_id=run.id, status="FAILED", error=str(e), level=logging.ERROR)
+                await self._notify_event(f"Job Agent run #{run.id} FAILED", [f"{type(e).__name__}: {str(e)[:300]}"])
             finally:
                 run.finished_at = utcnow()
                 run.stats = stats
@@ -335,3 +365,130 @@ class JobPipeline:
                 self._record_failure(db, run, "analysis", e, job_id=job.id)
         if len(pending) > limit:
             stats["analysis_deferred"] = len(pending) - limit
+
+    # ---------------------------------------------------------- auto-apply
+    def _start_of_local_day(self) -> datetime:
+        try:
+            tz = ZoneInfo(self.settings.schedule_timezone)
+        except (ZoneInfoNotFoundError, ValueError):
+            tz = timezone.utc
+        local_now = datetime.now(tz)
+        return datetime.combine(local_now.date(), dtime.min, tzinfo=tz).astimezone(timezone.utc)
+
+    def _auto_applied_today(self, db: Session) -> int:
+        since = self._start_of_local_day()
+        rows = db.execute(select(Application).where(Application.applied_at.isnot(None))).scalars().all()
+        count = 0
+        for a in rows:
+            applied = a.applied_at if a.applied_at.tzinfo else a.applied_at.replace(tzinfo=timezone.utc)
+            if applied >= since and (a.fill_result or {}).get("auto_submit"):
+                count += 1
+        return count
+
+    async def _auto_apply(self, db: Session, run: SearchRun, profile: Profile, stats: dict) -> None:
+        """Submit applications for top matches when every guard passes.
+
+        Guards: score threshold, daily cap, blocked domains (sites that forbid automation),
+        no answer flagged for review, and the browser agent's own checks (no CAPTCHA, every
+        required field filled, a real submit button, a confirmation after submitting).
+        """
+        cfg = get_runtime_settings(db).auto_apply
+        stats["auto_applied"] = 0
+        stats["auto_needs_review"] = 0
+        if not cfg.enabled:
+            return
+        if self.preparer is None or self.browser_agent is None:
+            stats["auto_apply_skipped"] = "browser agent not available in this process"
+            return
+        budget = max(0, cfg.daily_cap - self._auto_applied_today(db))
+        stats["auto_apply_budget"] = budget
+        if budget <= 0:
+            stats["auto_apply_skipped"] = "daily cap reached"
+            return
+        stmt = (
+            select(Job)
+            .where(
+                Job.pipeline_status == JobPipelineStatus.ANALYZED, Job.match_score >= cfg.min_score,
+                Job.user_action != JobUserAction.DISMISSED, Job.duplicate_of_id.is_(None), Job.is_sample.is_(False),
+            )
+            .order_by(Job.match_score.desc(), Job.discovered_at.desc())
+        )
+        if cfg.require_recommendation_apply:
+            stmt = stmt.where(Job.recommendation == Recommendation.APPLY)
+        blocked = [d.lower().strip() for d in cfg.blocked_domains if d.strip()]
+        finished = {ApplicationStatus.APPLIED, ApplicationStatus.INTERVIEW, ApplicationStatus.OFFER, ApplicationStatus.REJECTED, ApplicationStatus.WITHDRAWN}
+        for job in db.execute(stmt).scalars().all():
+            if budget <= 0:
+                break
+            url = job.apply_url or job.url
+            if not url:
+                continue
+            app = application_service.get_application_for_job(db, job.id)
+            if app is not None and (app.status in finished or (app.fill_result or {}).get("auto_apply_attempted")):
+                continue
+            domain = urlparse(url).netloc.lower()
+            if any(domain == b or domain.endswith("." + b) for b in blocked):
+                if app is None:
+                    app = application_service.create_application(db, ApplicationCreate(job_id=job.id, status=ApplicationStatus.SHORTLISTED))
+                app.fill_result = {**(app.fill_result or {}), "auto_apply_attempted": True, "auto_apply": "blocked_domain", "domain": domain}
+                app.notes = ((app.notes or "") + f"\nAuto-apply skipped: {domain} requires a manual application.").strip()
+                db.commit()
+                stats["auto_needs_review"] += 1
+                if cfg.notify_each:
+                    await self._notify_event(
+                        f"Manual apply needed: {job.title} at {job.company}",
+                        [f"Match {job.match_score}%", f"{domain} does not allow automated applications.", "Open the link and use the prepared answers from the dashboard."],
+                        url,
+                    )
+                continue
+            pending: list[str] = []
+            result = None
+            try:
+                if app is None:
+                    app = application_service.create_application(db, ApplicationCreate(job_id=job.id, status=ApplicationStatus.APPROVED))
+                app = await self.preparer.prepare(db, app)
+                if not cfg.allow_needs_review_answers:
+                    pending = [str(a.get("question")) for a in (app.answers or []) if isinstance(a, dict) and a.get("needs_review")]
+                if not pending:
+                    result = await self.browser_agent.fill_application(db, app, headless=True, submit=True)
+            except Exception as e:  # noqa: BLE001
+                db.rollback()
+                stats["failures"] += 1
+                self._record_failure(db, run, "auto_apply", e, job_id=job.id)
+                log_event("APPLICATION_FAILED", job_id=job.id, stage="auto_apply", error=str(e)[:300], level=logging.WARNING)
+                if cfg.notify_each:
+                    await self._notify_event(f"Auto-apply failed: {job.title} at {job.company}", [str(e)[:250]], url)
+                continue
+            app.fill_result = {**(app.fill_result or {}), "auto_apply_attempted": True}
+            db.commit()
+            if result is not None and result.submitted:
+                budget -= 1
+                stats["auto_applied"] += 1
+                log_event("AUTO_APPLIED", application_id=app.id, job_id=job.id, company=job.company, title=job.title)
+                if cfg.notify_each:
+                    await self._notify_event(
+                        f"Applied: {job.title} at {job.company}",
+                        [
+                            f"Match {job.match_score}%",
+                            f"Fields filled: {result.fields_filled}, questions answered: {result.questions_answered}, "
+                            f"resume: {'uploaded' if result.resume_uploaded else 'not uploaded'}",
+                            f"Confirmation: {result.submit_evidence}",
+                        ],
+                        url,
+                    )
+            else:
+                stats["auto_needs_review"] += 1
+                if pending:
+                    reasons = [f"answer needs your review: {q}" for q in pending]
+                elif result is not None and result.blockers:
+                    reasons = list(result.blockers)
+                elif result is not None:
+                    reasons = [result.message]
+                else:
+                    reasons = ["form could not be completed"]
+                if cfg.notify_each:
+                    await self._notify_event(
+                        f"Needs you: {job.title} at {job.company}",
+                        [f"Match {job.match_score}%", "Prepared but NOT submitted:", *[f"- {b}" for b in reasons[:5]], "Finish it from the dashboard."],
+                        url,
+                    )

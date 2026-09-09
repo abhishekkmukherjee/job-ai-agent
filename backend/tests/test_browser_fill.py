@@ -80,8 +80,9 @@ async def test_fill_fake_application_form_without_submitting(db):
     assert filled["Why do you want this role?"]["value"].startswith("Because I love")
     assert filled["Tell us about yourself"]["value"].startswith("Generated answer")
     unmatched = {f["label"] for f in result.unmatched_fields}
-    assert "I agree to the privacy policy" in unmatched
-    assert "Are you legally authorized to work in India?" in unmatched
+    assert "I agree to the privacy policy" not in unmatched  # consent is ticked so the form can be submitted
+    assert filled["I agree to the privacy policy"]["action"] == "check"
+    assert filled["Are you legally authorized to work in India?"]["value"] == "Yes"
     assert "NOT submitted" in result.message and "WARNING" not in result.message
     assert result.browser_open is False and agent.sessions == {}
 

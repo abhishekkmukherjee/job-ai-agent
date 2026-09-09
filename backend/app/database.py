@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import Enum, create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -70,11 +70,42 @@ def configure_database(url: str | None = None) -> Engine:
     return _engine
 
 
+def ensure_columns(engine: Engine) -> list[str]:
+    """Add columns that exist on the models but not yet in the database.
+
+    A deliberately small migration helper: only nullable / defaulted scalar columns
+    are added (enough for additive changes without a full migration tool).
+    """
+    from sqlalchemy import inspect, text
+
+    added: list[str] = []
+    insp = inspect(engine)
+    for table in Base.metadata.sorted_tables:
+        if not insp.has_table(table.name):
+            continue
+        existing = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in existing:
+                continue
+            if isinstance(col.type, Enum):
+                continue  # would need CREATE TYPE on Postgres - handle by hand
+            ddl = f"ALTER TABLE {table.name} ADD COLUMN {col.name} {col.type.compile(dialect=engine.dialect)}"
+            default = getattr(col.default, "arg", None) if col.default is not None else None
+            if default is not None and not callable(default):
+                ddl += " DEFAULT " + (f"'{default}'" if isinstance(default, str) else ("1" if default is True else "0" if default is False else str(default)))
+            with engine.begin() as conn:
+                conn.execute(text(ddl))
+            added.append(f"{table.name}.{col.name}")
+    return added
+
+
 def init_db() -> None:
-    """Create all tables.  Imports models so they are registered on Base."""
+    """Create all tables and add any columns introduced since.  Imports models so they are registered on Base."""
     from . import models  # noqa: F401
 
-    Base.metadata.create_all(bind=get_engine())
+    engine = get_engine()
+    Base.metadata.create_all(bind=engine)
+    ensure_columns(engine)
 
 
 def get_db() -> Generator[Session, None, None]:

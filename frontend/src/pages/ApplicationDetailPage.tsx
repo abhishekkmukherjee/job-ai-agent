@@ -351,8 +351,8 @@ export default function ApplicationDetailPage() {
             </div>
             {fill && (
               <div className={`alert mt ${fill.ok ? "alert-success" : "alert-error"}`}>
-                <b>{fill.ok ? "Application filled successfully." : "Fill failed."}</b> {fill.message}
-                {fill.ok && (
+                <b>{fill.submitted ? "Application SUBMITTED." : fill.ok ? "Application filled successfully." : "Fill failed."}</b> {fill.message}
+                {fill.ok && !fill.submitted && (
                   <div className="mt">
                     <b>DO NOT SUBMIT automatically.</b> Fields filled: {fill.fields_filled} / Questions answered: {fill.questions_answered} / Resume uploaded:{" "}
                     {fill.resume_uploaded ? "yes" : "no"}

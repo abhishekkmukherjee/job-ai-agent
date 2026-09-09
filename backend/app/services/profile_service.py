@@ -59,7 +59,7 @@ def profile_to_prompt_text(profile: Profile, include_contact: bool = False) -> s
     lines.append(f"Years of experience: {profile.years_of_experience}")
     lines.append(f"Current role: {profile.current_role} at {profile.current_company}")
     lines.append(f"Notice period: {profile.notice_period or 'not specified'}")
-    lines.append(f"Expected salary: {profile.expected_salary or 'not specified'}")
+    lines.append(salary_summary(profile))
     lines.append(f"Work authorization: {profile.work_authorization or 'not specified'}")
     if profile.summary:
         lines.append(f"Summary: {profile.summary}")
@@ -108,6 +108,32 @@ def profile_to_prompt_text(profile: Profile, include_contact: bool = False) -> s
     return "\n".join(lines)
 
 
+def _lpa(amount: int | float | None) -> str:
+    if not amount:
+        return ""
+    value = float(amount) / 100000.0
+    return f"{value:g} LPA"
+
+
+def salary_summary(profile: Profile) -> str:
+    """One line describing the candidate's salary position for prompts."""
+    cur = (profile.salary_currency or "INR").upper()
+    parts: list[str] = []
+    if profile.salary_expectation_remote:
+        parts.append(f"expected {_lpa(profile.salary_expectation_remote)} ({profile.salary_expectation_remote:,} {cur}/year) for remote roles")
+    if profile.salary_expectation_onsite:
+        parts.append(f"expected {_lpa(profile.salary_expectation_onsite)} ({profile.salary_expectation_onsite:,} {cur}/year) for onsite/relocation roles")
+    if profile.minimum_salary:
+        parts.append(f"minimum acceptable {_lpa(profile.minimum_salary)}")
+    if profile.current_salary:
+        parts.append(f"current salary {_lpa(profile.current_salary)} (only disclose if explicitly asked)")
+    if profile.expected_salary:
+        parts.append(f"notes: {profile.expected_salary}")
+    if not parts:
+        return "Salary expectations: not specified"
+    return "Salary expectations (" + cur + ", annual): " + "; ".join(parts) + ". If a posting states a higher range, align with the posted range."
+
+
 def profile_to_json(profile: Profile) -> str:
     """Full profile as JSON (used for resume tailoring / question answering)."""
     data = {
@@ -121,6 +147,7 @@ def profile_to_json(profile: Profile) -> str:
         "years_of_experience": profile.years_of_experience,
         "notice_period": profile.notice_period,
         "expected_salary": profile.expected_salary,
+        "salary": salary_summary(profile),
         "work_authorization": profile.work_authorization,
         "summary": profile.summary,
         "current_role": profile.current_role,

@@ -111,6 +111,11 @@ export interface FillResult {
   unmatched_fields: { label: string; selector: string; kind: string }[];
   browser_open: boolean;
   resume: string;
+  submitted: boolean;
+  submit_evidence: string;
+  blockers: string[];
+  final_url: string;
+  captcha_detected: boolean;
 }
 
 export interface Application {
@@ -179,6 +184,9 @@ export interface Profile {
   years_of_experience: number;
   notice_period: string;
   expected_salary: string;
+  current_salary: number | null;
+  salary_expectation_remote: number | null;
+  salary_expectation_onsite: number | null;
   work_authorization: string;
   summary: string;
   current_role: string;
@@ -244,6 +252,7 @@ export interface RuntimeSettings {
   filter_rules: FilterRules;
   career_pages: { greenhouse: string[]; lever: string[]; ashby: string[] };
   scheduler: { enabled: boolean; cron: string; timezone: string; analyze: boolean; notify: boolean };
+  auto_apply: { enabled: boolean; min_score: number; require_recommendation_apply: boolean; daily_cap: number; allow_needs_review_answers: boolean; blocked_domains: string[]; notify_each: boolean };
   enabled_sources: string[] | null;
   search_queries: string[];
   min_score_to_show: number;

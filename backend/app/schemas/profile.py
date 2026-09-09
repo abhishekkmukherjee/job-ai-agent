@@ -43,6 +43,9 @@ class ProfileBase(BaseModel):
     years_of_experience: float = 0
     notice_period: str = ""
     expected_salary: str = ""
+    current_salary: int | None = None
+    salary_expectation_remote: int | None = None
+    salary_expectation_onsite: int | None = None
     work_authorization: str = ""
     summary: str = ""
 
@@ -94,6 +97,9 @@ class ProfileUpdate(BaseModel):
     years_of_experience: float | None = None
     notice_period: str | None = None
     expected_salary: str | None = None
+    current_salary: int | None = None
+    salary_expectation_remote: int | None = None
+    salary_expectation_onsite: int | None = None
     work_authorization: str | None = None
     summary: str | None = None
     current_role: str | None = None

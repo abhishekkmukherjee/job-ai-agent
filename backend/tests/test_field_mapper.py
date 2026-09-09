@@ -37,7 +37,8 @@ def test_map_fields_covers_common_fields(db):
     assert by_label["Expected salary (annual)"].value == "25 LPA"
     assert [q.label for q in questions] == ["Why do you want this role?", "Tell us about yourself"]
     unmatched_labels = {f.label for f in unmatched}
-    assert {"Are you legally authorized to work in India?", "I agree to the privacy policy", "Gender"} <= unmatched_labels
+    assert "Gender" in unmatched_labels
+    assert by_label["I agree to the privacy policy"].action == "check"  # consent needed to submit; marketing boxes stay unticked
     assert "Password" not in unmatched_labels and "Password" not in by_label
 
 

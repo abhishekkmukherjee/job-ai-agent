@@ -36,6 +36,8 @@ export default function SettingsPage() {
   const setFr = (k: keyof RuntimeSettings["filter_rules"], v: unknown) => setS({ ...s, filter_rules: { ...fr, [k]: v } });
   const sch = s.scheduler;
   const setSch = (k: keyof RuntimeSettings["scheduler"], v: unknown) => setS({ ...s, scheduler: { ...sch, [k]: v } });
+  const aa = s.auto_apply;
+  const setAa = (k: keyof RuntimeSettings["auto_apply"], v: unknown) => setS({ ...s, auto_apply: { ...aa, [k]: v } });
   const cp = s.career_pages;
   const setCp = (k: keyof RuntimeSettings["career_pages"], v: string[]) => setS({ ...s, career_pages: { ...cp, [k]: v } });
   const enabledSources = s.enabled_sources ?? allSources.filter((x) => x.enabled).map((x) => x.name);
@@ -106,6 +108,19 @@ export default function SettingsPage() {
                 Status: {e.scheduler.running ? "running" : "stopped"}{e.scheduler.next_run ? `, next run ${formatDateTime(e.scheduler.next_run)}` : ""}
               </p>
             )}
+          </div>
+
+          <div className="card mt">
+            <h2>Auto-apply</h2>
+            <p className="muted small">
+              When enabled, the morning run prepares and <b>submits</b> applications for top matches on company career forms. It never submits when a CAPTCHA is present, a required field is unfilled, an answer is flagged for review, or the site is on the blocked list (LinkedIn, Naukri, Indeed...). Every submission and every skipped job is reported to Telegram.
+            </p>
+            <div className="form-row"><label>Enabled</label><div><input type="checkbox" checked={aa.enabled} onChange={(ev) => setAa("enabled", ev.target.checked)} /></div></div>
+            <div className="form-row"><label>Minimum match score</label><input type="number" min={0} max={100} value={aa.min_score} onChange={(ev) => setAa("min_score", Number(ev.target.value))} /></div>
+            <div className="form-row"><label>Only APPLY (90+) jobs</label><div><input type="checkbox" checked={aa.require_recommendation_apply} onChange={(ev) => setAa("require_recommendation_apply", ev.target.checked)} /></div></div>
+            <div className="form-row"><label>Daily cap</label><input type="number" min={0} max={100} value={aa.daily_cap} onChange={(ev) => setAa("daily_cap", Number(ev.target.value))} /></div>
+            <div className="form-row"><label>Telegram per application</label><div><input type="checkbox" checked={aa.notify_each} onChange={(ev) => setAa("notify_each", ev.target.checked)} /></div></div>
+            <div className="form-row"><label>Blocked domains</label><ChipInput value={aa.blocked_domains} onChange={(v) => setAa("blocked_domains", v)} /></div>
           </div>
 
           <div className="card mt">

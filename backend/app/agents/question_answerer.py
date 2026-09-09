@@ -52,7 +52,10 @@ def _postprocess(batch: QuestionAnswerBatch, questions: list[str], profile: Prof
             ans.confidence = min(ans.confidence, 0.3)
         ql = q.lower()
         if "salary" in ql or "compensation" in ql or "ctc" in ql:
-            if not (profile.expected_salary or "").strip():
+            has_expectation = bool(
+                (profile.expected_salary or "").strip() or profile.salary_expectation_remote or profile.salary_expectation_onsite
+            )
+            if not has_expectation:
                 ans.needs_review = True
         if "notice" in ql and not (profile.notice_period or "").strip():
             ans.needs_review = True

@@ -87,6 +87,7 @@ class AnswerQuestionsRequest(BaseModel):
 class FillRequest(BaseModel):
     url: str | None = None
     headless: bool | None = None
+    submit: bool = False
 
 
 class FillResponse(BaseModel):
@@ -99,3 +100,8 @@ class FillResponse(BaseModel):
     unmatched_fields: list[dict[str, Any]] = Field(default_factory=list)
     browser_open: bool = False
     resume: str = ""
+    submitted: bool = False
+    submit_evidence: str = ""
+    blockers: list[str] = Field(default_factory=list)
+    final_url: str = ""
+    captcha_detected: bool = False

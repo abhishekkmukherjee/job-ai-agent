@@ -37,6 +37,9 @@ class Profile(Base):
     years_of_experience: Mapped[float] = mapped_column(Integer, default=0)
     notice_period: Mapped[str] = mapped_column(String(100), default="")
     expected_salary: Mapped[str] = mapped_column(String(100), default="")
+    current_salary: Mapped[int | None] = mapped_column(Integer, nullable=True)          # annual, in salary_currency
+    salary_expectation_remote: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    salary_expectation_onsite: Mapped[int | None] = mapped_column(Integer, nullable=True)
     work_authorization: Mapped[str] = mapped_column(String(300), default="")
     summary: Mapped[str] = mapped_column(Text, default="")
 

@@ -38,6 +38,13 @@ class Notifier:
                 log_event("NOTIFICATION_FAILED", provider=provider.name, error=str(e)[:300], level=logging.WARNING)
         return results
 
+    async def send_event(self, title: str, lines: list[str], link: str | None = None) -> dict[str, Any]:
+        """Short progress update (auto-applied, needs review, run failed...)."""
+        body = "\n".join(lines)
+        if link:
+            body = f"{body}\n{link}" if body else link
+        return await self.send(title, body)
+
     async def send_daily_report(self, db: Session, run: SearchRun | None, stats: dict[str, Any]) -> dict[str, Any]:
         subject, body = build_daily_report(db, run, stats, self.dashboard_url)
         return await self.send(subject, body)

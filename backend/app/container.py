@@ -29,7 +29,9 @@ async def build_components(app: FastAPI) -> None:
     tailor = ResumeTailor(ai_router, settings)
     answerer = QuestionAnswerer(ai_router, settings)
     notifier = build_notifier(settings)
-    pipeline = JobPipeline(registry, analyzer, settings, notifier=notifier)
+    preparer = ApplicationPreparer(tailor, answerer)
+    browser_agent = BrowserAgent(settings, answerer)
+    pipeline = JobPipeline(registry, analyzer, settings, notifier=notifier, preparer=preparer, browser_agent=browser_agent)
     scheduler = SearchScheduler(pipeline, settings)
 
     app.state.ai_router = ai_router
@@ -38,8 +40,8 @@ async def build_components(app: FastAPI) -> None:
     app.state.notifier = notifier
     app.state.pipeline = pipeline
     app.state.resume_tailor = tailor
-    app.state.application_preparer = ApplicationPreparer(tailor, answerer)
-    app.state.browser_agent = BrowserAgent(settings, answerer)
+    app.state.application_preparer = preparer
+    app.state.browser_agent = browser_agent
     app.state.scheduler = scheduler
 
     with session_scope() as db:
@@ -56,8 +58,10 @@ async def build_components(app: FastAPI) -> None:
     if configured:
         logger.info("AI providers configured: %s", ", ".join(configured))
     else:
-        logger.warning("No AI provider configured - set GEMINI_API_KEY and/or OPENROUTER_API_KEY in .env")
+        logger.warning("No AI provider configured - set GEMINI_API_KEY, GROQ_API_KEY or OPENROUTER_API_KEY in .env")
     logger.info("Notifications: %s", ", ".join(f"{p['name']}({'ok' if p['configured'] else 'unconfigured'})" for p in notifier.describe()))
+    if runtime.auto_apply.enabled:
+        logger.warning("Auto-apply is ENABLED (min score %s, daily cap %s)", runtime.auto_apply.min_score, runtime.auto_apply.daily_cap)
     if scheduler.describe()["running"]:
         logger.info("Scheduler active: %s (%s), next run %s", config.cron, config.timezone, scheduler.describe()["next_run"])
 

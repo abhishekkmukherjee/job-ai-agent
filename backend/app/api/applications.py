@@ -102,7 +102,7 @@ async def fill_application(app_id: int, body: FillRequest, request: Request, db:
     if browser_agent is None:
         raise HTTPException(status_code=503, detail="Browser agent is not initialised")
     app = application_service.get_application(db, app_id)
-    return await browser_agent.fill_application(db, app, url=body.url, headless=body.headless)
+    return await browser_agent.fill_application(db, app, url=body.url, headless=body.headless, submit=body.submit)
 
 
 @router.post("/{app_id}/close-browser")

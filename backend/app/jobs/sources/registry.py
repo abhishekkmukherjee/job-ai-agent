@@ -11,6 +11,9 @@ from .adzuna import AdzunaSource
 from .arbeitnow import ArbeitnowSource
 from .base import JobSource, SearchContext
 from .career_pages import AshbySource, GreenhouseSource, LeverSource
+from .email_alerts import EmailAlertsSource
+from .jooble import JoobleSource
+from .jsearch import JSearchSource
 from .jobicy import JobicySource
 from .remoteok import RemoteOKSource
 from .remotive import RemotiveSource
@@ -34,6 +37,12 @@ class SourceRegistry:
                     LeverSource(**kwargs),
                     AshbySource(**kwargs),
                     AdzunaSource(settings.adzuna_app_id, settings.adzuna_app_key, settings.adzuna_country, **kwargs),
+                    JSearchSource(settings.rapidapi_key, settings.jsearch_country, **kwargs),
+                    JoobleSource(settings.jooble_api_key, **kwargs),
+                    EmailAlertsSource(
+                        settings.imap_host, settings.imap_port, settings.imap_user, settings.imap_password,
+                        settings.imap_folder, settings.imap_days, settings.alert_sender_list, **kwargs,
+                    ),
                     LinkedInSource(**kwargs),
                     NaukriSource(**kwargs),
                     IndeedSource(**kwargs),
