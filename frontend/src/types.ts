@@ -252,7 +252,7 @@ export interface RuntimeSettings {
   filter_rules: FilterRules;
   career_pages: { greenhouse: string[]; lever: string[]; ashby: string[] };
   scheduler: { enabled: boolean; cron: string; timezone: string; analyze: boolean; notify: boolean };
-  auto_apply: { enabled: boolean; min_score: number; require_recommendation_apply: boolean; daily_cap: number; allow_needs_review_answers: boolean; blocked_domains: string[]; notify_each: boolean };
+  auto_apply: { enabled: boolean; min_score: number; require_recommendation_apply: boolean; daily_cap: number; allow_needs_review_answers: boolean; blocked_domains: string[]; notify_each: boolean; email_enabled: boolean; email_per_company_days: number };
   enabled_sources: string[] | null;
   search_queries: string[];
   min_score_to_show: number;

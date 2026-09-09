@@ -86,6 +86,8 @@ export const api = {
     }),
   fillApplication: (id: number, body: { url?: string | null; headless?: boolean | null }) =>
     request<FillResult>(`/api/applications/${id}/fill`, { method: "POST", body: JSON.stringify(body) }),
+  assistApplication: (id: number, body: { url?: string | null }) =>
+    request<FillResult>(`/api/applications/${id}/assist`, { method: "POST", body: JSON.stringify(body) }),
   closeBrowser: (id: number) => request<{ closed: boolean }>(`/api/applications/${id}/close-browser`, { method: "POST" }),
   applicationStatuses: () => request<{ statuses: string[]; transitions: Record<string, string[]> }>("/api/applications/statuses"),
 

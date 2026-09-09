@@ -227,3 +227,69 @@ async def test_browser_agent_auto_submits_fake_site(db):
     values = {f["label"]: f["value"] for f in result.fields}
     assert values["I agree to the privacy policy"] == "yes"
     assert values["Expected salary (annual)"].startswith("7")
+
+
+# --------------------------------------------------------------------------- email channel
+class FakeAnswerer:
+    async def answer(self, db, job, questions, profile=None, force=False):
+        from app.schemas.ai import QuestionAnswer
+
+        return [QuestionAnswer(question=q, answer="Dear team, I am applying for this role. Regards, Abhishek", confidence=0.9, needs_review=False) for q in questions]
+
+
+class FakeEmailApplier:
+    def __init__(self, configured=True):
+        self.configured, self.sent = configured, []
+
+    def is_configured(self):
+        return self.configured
+
+    def recently_emailed_company(self, db, company, days):
+        from app.services.email_apply import EmailApplier
+
+        return EmailApplier.recently_emailed_company(db, company, days)  # the real guard, against the test DB
+
+    def send(self, to_email, subject, body, resume_path, reply_to=None):
+        self.sent.append({"to": to_email, "subject": subject, "body": body, "resume": resume_path, "company": subject.split(" - ")[0]})
+        return {"channel": "email", "to": to_email, "subject": subject, "attachment": "resume.pdf"}
+
+
+async def test_auto_apply_by_email_for_blocked_or_linkless_postings(db, tmp_path):
+    profile_of(db)
+    from app.jobs.pipeline import JobPipeline
+    from app.jobs.sources.registry import SourceRegistry
+
+    pdf = tmp_path / "r.pdf"
+    pdf.write_bytes(b"%PDF")
+    j1 = scored_job(db, "21", "AI Engineer", "Mail Co", "https://www.linkedin.com/jobs/view/21", 92)
+    j1.description = "Great role. To apply, send your resume to careers@mailco.in"
+    j2 = scored_job(db, "22", "Backend Engineer", "Mail Co", "https://www.naukri.com/job-listings-22", 90)
+    j2.description = "Second opening at the same company - email hr@mailco.in"
+    j3 = scored_job(db, "23", "AI Engineer", "NoMail Co", "https://www.linkedin.com/jobs/view/23", 91)
+    db.commit()
+    settings = Settings(job_sources_enabled="", gemini_api_key="", openrouter_api_key="", groq_api_key="")
+    update_runtime_settings(db, RuntimeSettingsUpdate(auto_apply=AutoApplySettings(enabled=True, min_score=85, daily_cap=5, email_enabled=True)))
+    preparer = FakePreparer()
+    preparer.answerer = FakeAnswerer()
+
+    async def prep(db_, app, questions=None, regenerate_resume=False):
+        app = await FakePreparer.prepare(preparer, db_, app, questions, regenerate_resume)
+        app.resume_path = str(pdf)
+        db_.commit()
+        return app
+
+    preparer.prepare = prep
+    emailer, notifier = FakeEmailApplier(), FakeNotifier()
+    pipeline = JobPipeline(SourceRegistry(settings, sources=[]), None, settings, notifier=notifier, preparer=preparer, browser_agent=FakeBrowserAgent(), email_applier=emailer)
+    run = await pipeline.run(db, trigger="test", analyze=True)
+    assert run.status.value == "COMPLETED", run.error
+    assert run.stats["auto_applied"] == 1 and run.stats.get("auto_emailed") == 1
+    assert run.stats.get("auto_skipped_same_company") == 1          # second Mail Co posting within 7 days
+    assert emailer.sent[0]["to"] == "careers@mailco.in" and emailer.sent[0]["resume"] == str(pdf)
+    statuses = {a.job_id: a for a in db.query(Application).all()}
+    assert statuses[j1.id].status == ApplicationStatus.APPLIED and statuses[j1.id].fill_result["channel"] == "email"
+    assert statuses[j1.id].cover_note.startswith("Dear team")
+    assert statuses[j3.id].status == ApplicationStatus.SHORTLISTED   # blocked domain, no email -> manual
+    titles = [e[0] for e in notifier.events]
+    assert any(t.startswith("Applied by email: AI Engineer at Mail Co") for t in titles)
+    assert any(t.startswith("Manual apply needed: AI Engineer at NoMail Co") for t in titles)

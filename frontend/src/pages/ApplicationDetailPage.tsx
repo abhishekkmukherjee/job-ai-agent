@@ -340,6 +340,26 @@ export default function ApplicationDetailPage() {
               <button className="btn btn-primary" disabled={!!busy || !fillUrl} onClick={doFill}>
                 {busy === "fill" ? "Filling..." : "Fill Application"}
               </button>
+              <button
+                className="btn"
+                disabled={!!busy || !fillUrl}
+                title="For LinkedIn, Naukri, Indeed, YC: opens your own logged-in browser, pre-fills the form, you press submit"
+                onClick={async () => {
+                  setBusy("assist");
+                  try {
+                    const r = await api.assistApplication(app.id, { url: fillUrl || null });
+                    setFill(r);
+                    toast.show(r.ok ? "Browser opened and pre-filled. Review it there and press submit yourself." : r.message, r.ok ? "success" : "error");
+                    reload();
+                  } catch (e: any) {
+                    toast.show(e.message, "error");
+                  } finally {
+                    setBusy(null);
+                  }
+                }}
+              >
+                {busy === "assist" ? "Opening..." : "Assist in my browser"}
+              </button>
               {fillUrl && (
                 <a className="btn" href={fillUrl} target="_blank" rel="noreferrer">
                   Open Application

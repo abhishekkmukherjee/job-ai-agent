@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     job_filtering_prompt_version: int = 1
 
     # ------------------------------------------------------------ discovery
-    job_sources_enabled: str = "remotive,arbeitnow,remoteok,jobicy,greenhouse,lever,ashby,adzuna,jsearch,jooble,email_alerts"
+    job_sources_enabled: str = "remotive,arbeitnow,remoteok,jobicy,greenhouse,lever,ashby,adzuna,jsearch,jooble,email_alerts,ycombinator,himalayas,weworkremotely,hn_hiring"
     job_source_timeout: float = 30.0
     job_source_max_per_source: int = 200
     job_user_agent: str = "job-agent/0.1 (personal job search assistant)"

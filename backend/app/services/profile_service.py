@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Profile
 from ..schemas.profile import ProfileUpdate
+from .location import describe_priority
 
 
 def get_profile(db: Session) -> Profile:
@@ -54,7 +55,7 @@ def profile_to_prompt_text(profile: Profile, include_contact: bool = False) -> s
         if profile.portfolio_url:
             lines.append(f"Portfolio: {profile.portfolio_url}")
     lines.append(f"Current location: {profile.current_location}")
-    lines.append(f"Preferred locations: {', '.join(profile.preferred_locations or [])}")
+    lines.append(f"Preferred locations in priority order (first is best): {describe_priority(profile)}")
     lines.append(f"Remote preference: {profile.remote_preference}")
     lines.append(f"Years of experience: {profile.years_of_experience}")
     lines.append(f"Current role: {profile.current_role} at {profile.current_company}")
@@ -95,7 +96,7 @@ def profile_to_prompt_text(profile: Profile, include_contact: bool = False) -> s
     lines.append("")
     lines.append("Job preferences:")
     lines.append(f"- Target roles: {', '.join(profile.target_roles or [])}")
-    lines.append(f"- Target locations: {', '.join(profile.target_locations or [])}")
+    lines.append(f"- Target locations (priority order): {describe_priority(profile)}")
     lines.append(f"- Experience range: {profile.experience_min}-{profile.experience_max} years")
     if profile.minimum_salary:
         lines.append(f"- Minimum salary: {profile.minimum_salary} {profile.salary_currency}")

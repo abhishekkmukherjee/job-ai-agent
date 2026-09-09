@@ -133,6 +133,76 @@ class BrowserAgent:
         self.sessions[application_id] = session
         return session
 
+    async def _launch_persistent(self, application_id: int) -> BrowserSession:
+        """Headed browser with a persistent profile (data/browser_profile) so the user's own
+        logins to LinkedIn / Naukri / Indeed survive between assisted sessions."""
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError as e:  # pragma: no cover
+            raise RuntimeError("Playwright is not installed. Run: pip install playwright && playwright install chromium") from e
+        from ..config import DATA_DIR
+
+        profile_dir = DATA_DIR / "browser_profile"
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        pw = await async_playwright().start()
+        try:
+            context = await pw.chromium.launch_persistent_context(
+                str(profile_dir), headless=False, viewport={"width": 1280, "height": 900}, accept_downloads=False,
+                slow_mo=self.settings.browser_slow_mo_ms or 0,
+            )
+        except Exception as e:  # noqa: BLE001
+            await pw.stop()
+            raise RuntimeError(f"Could not launch Chromium with the persistent profile: {e}") from e
+        context.set_default_timeout(self.settings.browser_timeout_ms)
+        page = context.pages[0] if context.pages else await context.new_page()
+        session = BrowserSession(application_id, pw, context.browser or context, context, page)
+        self.sessions[application_id] = session
+        return session
+
+    async def assist_application(self, db: Session, app: Application, url: str | None = None) -> FillResponse:
+        """Assisted mode for sites that forbid automation: open the posting in the user's own
+        logged-in browser, reveal the application form, pre-fill it - and stop.  The user submits."""
+        target = self._validate_url(url or app.job_url)
+        profile = get_profile(db)
+        resume_path = app.resume_path if app.resume_path and Path(app.resume_path).exists() else None
+        job_remote = app.job.remote_type.value if app.job is not None and app.job.remote_type else None
+        log_event("APPLICATION_STARTED", application_id=app.id, url=target, stage="browser_assist")
+        async with self._lock:
+            await self.close_session(app.id)
+            try:
+                session = await self._launch_persistent(app.id)
+            except RuntimeError as e:
+                app.last_error = str(e)[:1000]
+                db.commit()
+                return FillResponse(ok=False, message=str(e))
+            page = session.page
+            try:
+                await page.goto(target, wait_until="domcontentloaded")
+                await page.wait_for_timeout(1500)
+                scan = await self._scan_or_follow_apply(session, max_hops=1)
+                login_wall = bool(re.search(r"sign in|log in|join now|create account", scan.body_text[:3000], re.I)) and len(scan.fields) < 3
+                actions, question_fields, unmatched = map_fields(scan.fields, profile, resume_path, app.cover_note or "", job_remote)
+                answer_actions, unanswered = await self._plan_answers(db, app, question_fields)
+                actions.extend(answer_actions)
+                unmatched.extend(unanswered)
+                filled = await self._apply(session, actions)
+                blockers = submit_blockers(actions, unmatched, scan.submits, scan.captcha, len(scan.fields))
+                result = self._build_result(actions, unmatched, scan, filled, resume_path, keep_open=True, submitted=False, evidence="", blockers=blockers, final_url=page.url)
+                if login_wall:
+                    result.message = "This site wants you to log in first. Log in inside the opened browser window (your login is remembered), then click 'Assist in browser' again. " + result.message
+            except Exception as e:  # noqa: BLE001
+                app.last_error = f"Assisted browser session failed: {type(e).__name__}: {e}"[:1000]
+                db.commit()
+                await self.close_session(app.id)
+                return FillResponse(ok=False, message=app.last_error)
+        app.fill_result = {**result.model_dump(), "at": datetime.now(timezone.utc).isoformat(), "mode": "assist"}
+        app.last_error = ""
+        if app.status in (ApplicationStatus.APPROVED, ApplicationStatus.PREPARING):
+            application_service.transition_status(db, app, ApplicationStatus.READY_TO_APPLY, note="assisted fill, awaiting your submit")
+        db.commit()
+        log_event("APPLICATION_FILLED", application_id=app.id, mode="assist", fields_filled=result.fields_filled, unmatched=len(result.unmatched_fields))
+        return result
+
     async def close_session(self, application_id: int) -> bool:
         session = self.sessions.pop(application_id, None)
         if session is None:

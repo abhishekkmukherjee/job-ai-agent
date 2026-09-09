@@ -12,12 +12,14 @@ from .arbeitnow import ArbeitnowSource
 from .base import JobSource, SearchContext
 from .career_pages import AshbySource, GreenhouseSource, LeverSource
 from .email_alerts import EmailAlertsSource
+from .feeds import HimalayasSource, HNHiringSource, WeWorkRemotelySource
 from .jooble import JoobleSource
 from .jsearch import JSearchSource
 from .jobicy import JobicySource
 from .remoteok import RemoteOKSource
 from .remotive import RemotiveSource
-from .unsupported import IndeedSource, LinkedInSource, NaukriSource
+from .unsupported import IndeedSource, LinkedInSource, NaukriSource, WellfoundSource
+from .ycombinator import YCombinatorSource
 
 
 class SourceRegistry:
@@ -43,9 +45,14 @@ class SourceRegistry:
                         settings.imap_host, settings.imap_port, settings.imap_user, settings.imap_password,
                         settings.imap_folder, settings.imap_days, settings.alert_sender_list, **kwargs,
                     ),
+                    YCombinatorSource(**kwargs),
+                    HimalayasSource(**kwargs),
+                    WeWorkRemotelySource(**kwargs),
+                    HNHiringSource(**kwargs),
                     LinkedInSource(**kwargs),
                     NaukriSource(**kwargs),
                     IndeedSource(**kwargs),
+                    WellfoundSource(**kwargs),
                 ]
             )
         }

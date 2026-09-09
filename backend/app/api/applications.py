@@ -105,6 +105,16 @@ async def fill_application(app_id: int, body: FillRequest, request: Request, db:
     return await browser_agent.fill_application(db, app, url=body.url, headless=body.headless, submit=body.submit)
 
 
+@router.post("/{app_id}/assist", response_model=FillResponse)
+async def assist_application(app_id: int, body: FillRequest, request: Request, db: Session = Depends(get_db)) -> FillResponse:
+    """Assisted mode: open the posting in the user's own logged-in browser, pre-fill, never submit."""
+    browser_agent = getattr(request.app.state, "browser_agent", None)
+    if browser_agent is None:
+        raise HTTPException(status_code=503, detail="Browser agent is not initialised")
+    app = application_service.get_application(db, app_id)
+    return await browser_agent.assist_application(db, app, url=body.url)
+
+
 @router.post("/{app_id}/close-browser")
 async def close_browser(app_id: int, request: Request) -> dict:
     browser_agent = getattr(request.app.state, "browser_agent", None)

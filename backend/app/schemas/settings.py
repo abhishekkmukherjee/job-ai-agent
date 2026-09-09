@@ -86,6 +86,8 @@ class AutoApplySettings(BaseModel):
         ]
     )   # sites that require login / forbid automation: prepared for manual submission instead
     notify_each: bool = True
+    email_enabled: bool = True                   # apply by email when a posting asks for CVs by mail
+    email_per_company_days: int = Field(default=7, ge=0, le=90)
 
 
 class RuntimeSettings(BaseModel):

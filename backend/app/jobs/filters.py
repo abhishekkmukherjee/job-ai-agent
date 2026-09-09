@@ -83,19 +83,12 @@ def _contains_keyword(text: str, keywords: list[str]) -> str | None:
 
 
 def _location_matches(job_location: str, preferred: list[str]) -> bool:
+    from ..services.location import location_matches
+
     loc = (job_location or "").lower()
     if not loc:
         return False
-    for p in preferred:
-        p = (p or "").lower().strip()
-        if not p or p == "remote":
-            continue
-        if p in loc:
-            return True
-        # common aliases
-        if p in ("bangalore", "bengaluru") and ("bangalore" in loc or "bengaluru" in loc):
-            return True
-    return False
+    return any(p and p.strip().lower() != "remote" and location_matches(loc, p) for p in preferred)
 
 
 _REGION_SPLIT = re.compile(r"[,/;|]|\band\b|\bor\b|\s-\s|\(|\)")

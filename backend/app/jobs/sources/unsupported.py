@@ -42,3 +42,9 @@ class IndeedSource(_UnsupportedSource):
     name = "indeed"
     description = "Indeed - NOT automated (publisher API discontinued, CAPTCHA protection)."
     reason = "no public API; CAPTCHA protected"
+
+
+class WellfoundSource(_UnsupportedSource):
+    name = "wellfound"
+    description = "Wellfound (AngelList Talent) - NOT scraped: the site is behind Cloudflare Turnstile. Its job-alert emails are read by email_alerts."
+    reason = "protected by Cloudflare Turnstile; use Wellfound job-alert emails (email_alerts source)"

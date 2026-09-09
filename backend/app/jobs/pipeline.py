@@ -39,8 +39,15 @@ from ..models import (
 from ..schemas.application import ApplicationCreate
 from ..schemas.job import NormalizedJob
 from ..services import application_service
+from ..services.email_apply import EmailApplier, find_application_email
+from ..services.location import location_rank
 from ..services.profile_service import get_profile
 from ..services.settings_service import get_runtime_settings
+
+COVER_EMAIL_QUESTION = (
+    "Write a concise cover email (120-170 words, plain text, no subject line, no placeholders) applying for this role. "
+    "Open with a greeting, say which role you are applying for, give 2-3 concrete reasons from the profile, and close politely with the candidate's name."
+)
 from .dedupe import content_hash, find_duplicate
 from .filters import FilterOutcome, RuleFilter
 from .sources.base import SourceError
@@ -60,6 +67,7 @@ class JobPipeline:
         notifier: Any | None = None,
         preparer: Any | None = None,
         browser_agent: Any | None = None,
+        email_applier: Any | None = None,
     ):
         self.registry = registry
         self.analyzer = analyzer
@@ -67,6 +75,7 @@ class JobPipeline:
         self.notifier = notifier
         self.preparer = preparer
         self.browser_agent = browser_agent
+        self.email_applier = email_applier if email_applier is not None else EmailApplier(settings)
         self.is_running = False
         self._lock = asyncio.Lock()
 
@@ -385,6 +394,74 @@ class JobPipeline:
                 count += 1
         return count
 
+    async def _apply_by_email(
+        self, db: Session, run: SearchRun, job: Job, app: Application | None, apply_email: str, cfg: Any, stats: dict,
+        form_blockers: list[str] | None = None,
+    ) -> bool:
+        """Send the tailored resume + a grounded cover email to the address the posting names.  Returns True if sent."""
+        url = job.apply_url or job.url or ""
+        if self.email_applier.recently_emailed_company(db, job.company, cfg.email_per_company_days):
+            if app is None:
+                app = application_service.create_application(db, ApplicationCreate(job_id=job.id, status=ApplicationStatus.SHORTLISTED))
+            app.fill_result = {**(app.fill_result or {}), "auto_apply_attempted": True, "auto_apply": "company_recently_emailed", "to": apply_email}
+            db.commit()
+            stats["auto_skipped_same_company"] = stats.get("auto_skipped_same_company", 0) + 1
+            return False
+        pending: list[str] = []
+        try:
+            if app is None:
+                app = application_service.create_application(db, ApplicationCreate(job_id=job.id, status=ApplicationStatus.APPROVED))
+            app = await self.preparer.prepare(db, app)
+            if not cfg.allow_needs_review_answers:
+                pending = [str(a.get("question")) for a in (app.answers or []) if isinstance(a, dict) and a.get("needs_review")]
+            body = None
+            if not pending:
+                cover = await self.preparer.answerer.answer(db, job, [COVER_EMAIL_QUESTION])
+                if cover and cover[0].answer.strip() and not cover[0].needs_review:
+                    body = cover[0].answer.strip()
+                else:
+                    pending = ["cover email could not be written from the profile"]
+            if pending:
+                app.fill_result = {**(app.fill_result or {}), "auto_apply_attempted": True, "auto_apply": "email_needs_review", "to": apply_email}
+                db.commit()
+                stats["auto_needs_review"] += 1
+                if cfg.notify_each:
+                    await self._notify_event(
+                        f"Needs you: {job.title} at {job.company}",
+                        [f"Match {job.match_score}%", f"Apply by email to {apply_email} - held because:", *[f"- {p}" for p in pending[:4]], "Finish it from the dashboard."],
+                        url,
+                    )
+                return False
+            profile = get_profile(db)
+            subject = f"Application for {job.title} - {profile.full_name}"
+            sent = await asyncio.to_thread(self.email_applier.send, apply_email, subject, body, app.resume_path, profile.email or None)
+        except Exception as e:  # noqa: BLE001
+            db.rollback()
+            stats["failures"] += 1
+            self._record_failure(db, run, "auto_apply_email", e, job_id=job.id)
+            log_event("APPLICATION_FAILED", job_id=job.id, stage="auto_apply_email", error=str(e)[:300], level=logging.WARNING)
+            if cfg.notify_each:
+                await self._notify_event(f"Email application failed: {job.title} at {job.company}", [str(e)[:250]], url)
+            return False
+        app.cover_note = body
+        app.fill_result = {**(app.fill_result or {}), **sent, "auto_apply_attempted": True, "auto_submit": True, "submitted": True, "form_blockers": form_blockers or []}
+        if app.status in (ApplicationStatus.DISCOVERED, ApplicationStatus.SHORTLISTED):
+            application_service.transition_status(db, app, ApplicationStatus.APPROVED, note="auto-apply")
+        if app.status in (ApplicationStatus.APPROVED, ApplicationStatus.PREPARING):
+            application_service.transition_status(db, app, ApplicationStatus.READY_TO_APPLY, note="email prepared")
+        application_service.transition_status(db, app, ApplicationStatus.APPLIED, note=f"applied by email to {apply_email}")
+        db.commit()
+        stats["auto_applied"] += 1
+        stats["auto_emailed"] = stats.get("auto_emailed", 0) + 1
+        log_event("AUTO_APPLIED", application_id=app.id, job_id=job.id, company=job.company, title=job.title, channel="email")
+        if cfg.notify_each:
+            await self._notify_event(
+                f"Applied by email: {job.title} at {job.company}",
+                [f"Match {job.match_score}%", f"Sent to {apply_email} with {sent.get('attachment', 'resume')} attached.", f"Subject: {subject}"],
+                url,
+            )
+        return True
+
     async def _auto_apply(self, db: Session, run: SearchRun, profile: Profile, stats: dict) -> None:
         """Submit applications for top matches when every guard passes.
 
@@ -417,17 +494,28 @@ class JobPipeline:
             stmt = stmt.where(Job.recommendation == Recommendation.APPLY)
         blocked = [d.lower().strip() for d in cfg.blocked_domains if d.strip()]
         finished = {ApplicationStatus.APPLIED, ApplicationStatus.INTERVIEW, ApplicationStatus.OFFER, ApplicationStatus.REJECTED, ApplicationStatus.WITHDRAWN}
-        for job in db.execute(stmt).scalars().all():
+        candidates = db.execute(stmt).scalars().all()
+        # Best score first; among equal scores the candidate's city priority decides (Bangalore > Pune > ... > remote).
+        candidates.sort(key=lambda j: (-(j.match_score or 0), location_rank(j, profile)))
+        email_ok = cfg.email_enabled and self.email_applier is not None and self.email_applier.is_configured()
+        for job in candidates:
             if budget <= 0:
                 break
             url = job.apply_url or job.url
-            if not url:
+            apply_email = find_application_email(job.description or "") if email_ok else None
+            if not url and not apply_email:
                 continue
             app = application_service.get_application_for_job(db, job.id)
             if app is not None and (app.status in finished or (app.fill_result or {}).get("auto_apply_attempted")):
                 continue
-            domain = urlparse(url).netloc.lower()
-            if any(domain == b or domain.endswith("." + b) for b in blocked):
+            domain = urlparse(url).netloc.lower() if url else ""
+            is_blocked = bool(domain) and any(domain == b or domain.endswith("." + b) for b in blocked)
+            if apply_email and (is_blocked or not url):
+                sent = await self._apply_by_email(db, run, job, app, apply_email, cfg, stats)
+                if sent:
+                    budget -= 1
+                continue
+            if is_blocked:
                 if app is None:
                     app = application_service.create_application(db, ApplicationCreate(job_id=job.id, status=ApplicationStatus.SHORTLISTED))
                 app.fill_result = {**(app.fill_result or {}), "auto_apply_attempted": True, "auto_apply": "blocked_domain", "domain": domain}
@@ -477,6 +565,12 @@ class JobPipeline:
                         url,
                     )
             else:
+                # The form could not be submitted; if the posting also accepts applications by email, use that.
+                if apply_email and not pending:
+                    sent = await self._apply_by_email(db, run, job, app, apply_email, cfg, stats, form_blockers=(result.blockers if result else []))
+                    if sent:
+                        budget -= 1
+                        continue
                 stats["auto_needs_review"] += 1
                 if pending:
                     reasons = [f"answer needs your review: {q}" for q in pending]
