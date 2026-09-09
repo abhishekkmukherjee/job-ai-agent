@@ -101,11 +101,30 @@ def update_application(db: Session, app_id: int, data: ApplicationUpdate) -> App
     new_status = changes.pop("status", None)
     if new_status is not None:
         transition_status(db, app, ApplicationStatus(new_status), note="manual update")
+    if changes.get("answers") is not None:
+        changes["answers"] = _merge_answer_edits(app.answers or [], changes["answers"])
     for key, value in changes.items():
         setattr(app, key, value)
     db.commit()
     db.refresh(app)
     return app
+
+
+def _merge_answer_edits(stored: list[dict], incoming: list[dict]) -> list[dict]:
+    """Flag answers whose text the user changed so regeneration never overwrites them."""
+    previous = {str(a.get("question", "")).strip().lower(): a for a in stored if isinstance(a, dict)}
+    merged: list[dict] = []
+    for item in incoming:
+        item = dict(item)
+        prev = previous.get(str(item.get("question", "")).strip().lower())
+        if prev is None or (item.get("answer") or "").strip() != (prev.get("answer") or "").strip():
+            item["edited"] = True
+            item["source"] = "user"
+        else:
+            item["edited"] = bool(prev.get("edited"))
+            item["source"] = prev.get("source") or item.get("source") or ""
+        merged.append(item)
+    return merged
 
 
 def list_applications(db: Session, status: ApplicationStatus | None = None, query: str | None = None) -> ApplicationListResponse:

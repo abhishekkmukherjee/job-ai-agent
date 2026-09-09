@@ -78,7 +78,9 @@ async def prepare_application(
     if preparer is None:
         raise HTTPException(status_code=503, detail="Application preparer is not initialised")
     app = application_service.get_application(db, app_id)
-    app = await preparer.prepare(db, app, questions=body.questions, regenerate_resume=body.regenerate_resume)
+    app = await preparer.prepare(
+        db, app, questions=body.questions, regenerate_resume=body.regenerate_resume, regenerate_answers=body.regenerate_answers
+    )
     return application_service.application_to_read(app)
 
 

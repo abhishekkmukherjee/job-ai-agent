@@ -14,6 +14,8 @@ class AnswerItem(BaseModel):
     confidence: float = 0.5
     needs_review: bool = False
     field_selector: str | None = None
+    edited: bool = False      # True once the user changed the text by hand - never overwritten by regeneration
+    source: str = ""          # ai | user
 
 
 class ApplicationCreate(BaseModel):
@@ -75,6 +77,7 @@ class ApplicationListResponse(BaseModel):
 class PrepareRequest(BaseModel):
     questions: list[str] = Field(default_factory=list)
     regenerate_resume: bool = False
+    regenerate_answers: bool = False   # also overwrite hand-edited answers
 
 
 class AnswerQuestionsRequest(BaseModel):

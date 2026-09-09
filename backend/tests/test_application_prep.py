@@ -167,3 +167,40 @@ async def test_prepare_endpoint_reports_ai_failure(client, db):
     r = client.post(f"/api/applications/{app['id']}/prepare", json={})
     assert r.status_code == 502 and "provider down" in r.json()["detail"]
     assert client.get(f"/api/applications/{app['id']}").json()["status"] == "APPROVED"
+
+
+async def test_profile_change_regenerates_answers_but_keeps_user_edits(client, db):
+    from app.main import app as fastapi_app
+
+    calls = {"n": 0}
+
+    def responder(prompt, system):
+        if "=== QUESTIONS ===" in prompt:
+            calls["n"] += 1
+            out = answers_for(prompt, system)
+            for a in out["answers"]:
+                if a["answer"]:
+                    a["answer"] = f"{a['answer']} (v{calls['n']})"
+            return out
+        return RESUME
+
+    tailor, answerer, preparer, provider = make(responder)
+    fastapi_app.state.application_preparer = preparer
+    fastapi_app.state.resume_tailor = tailor
+    job_id = nimbus(db).id
+    app_id = client.post("/api/applications", json={"job_id": job_id, "status": "APPROVED"}).json()["id"]
+    qs = ["Why do you want this role?", "What is your notice period?"]
+    body = client.post(f"/api/applications/{app_id}/prepare", json={"questions": qs}).json()
+    assert body["answers"][0]["answer"].endswith("(v1)") and body["answers"][0]["source"] == "ai"
+    # user edits only the first answer
+    edited = [dict(body["answers"][0], answer="My own words"), body["answers"][1]]
+    body = client.patch(f"/api/applications/{app_id}", json={"answers": edited}).json()
+    assert body["answers"][0]["edited"] is True and body["answers"][1]["edited"] is False
+    # profile changes -> cache miss -> generated answers refresh, the edited one stays
+    client.patch("/api/profile", json={"notice_period": "60 days"})
+    body = client.post(f"/api/applications/{app_id}/prepare", json={"questions": qs}).json()
+    assert body["answers"][0]["answer"] == "My own words"
+    assert body["answers"][1]["answer"].endswith("(v2)")
+    # explicit override regenerates everything
+    body = client.post(f"/api/applications/{app_id}/prepare", json={"questions": qs, "regenerate_answers": True}).json()
+    assert body["answers"][0]["answer"].endswith("(v3)")

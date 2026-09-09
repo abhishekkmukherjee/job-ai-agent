@@ -17,7 +17,10 @@ class ApplicationPreparer:
         self.tailor = tailor
         self.answerer = answerer
 
-    async def prepare(self, db: Session, app: Application, questions: list[str] | None = None, regenerate_resume: bool = False) -> Application:
+    async def prepare(
+        self, db: Session, app: Application, questions: list[str] | None = None,
+        regenerate_resume: bool = False, regenerate_answers: bool = False,
+    ) -> Application:
         job = app.job
         if job is None:
             raise HTTPException(status_code=409, detail="Application has no job attached")
@@ -32,16 +35,16 @@ class ApplicationPreparer:
                 resume, model = await self.tailor.generate(db, job, profile, force=regenerate_resume)
                 self.tailor.attach(db, app, resume, profile, model)
             qs = questions or DEFAULT_QUESTIONS
-            answers = await self.answerer.answer(db, job, qs, profile)
+            answers = await self.answerer.answer(db, job, qs, profile, force=regenerate_answers)
             existing = {a.get("question", "").strip().lower(): a for a in (app.answers or []) if isinstance(a, dict)}
             merged = []
             for a in answers:
                 prev = existing.pop(a.question.strip().lower(), None)
-                # keep a user-edited answer unless regeneration was explicitly requested
-                if prev and prev.get("answer") and not prev.get("needs_review") and not regenerate_resume:
+                # hand-edited answers survive regeneration unless explicitly overridden
+                if prev and prev.get("edited") and prev.get("answer") and not regenerate_answers:
                     merged.append(prev)
                 else:
-                    merged.append(a.model_dump())
+                    merged.append({**a.model_dump(), "source": "ai", "edited": False})
             merged.extend(existing.values())
             app.answers = merged
             app.last_error = ""
@@ -71,7 +74,7 @@ class ApplicationPreparer:
         current = [a for a in (app.answers or []) if isinstance(a, dict)]
         asked = {a.question.strip().lower() for a in answers}
         current = [a for a in current if a.get("question", "").strip().lower() not in asked]
-        app.answers = [*current, *[a.model_dump() for a in answers]]
+        app.answers = [*current, *[{**a.model_dump(), "source": "ai", "edited": False} for a in answers]]
         db.commit()
         db.refresh(app)
         return app

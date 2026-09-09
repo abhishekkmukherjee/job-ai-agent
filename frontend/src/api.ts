@@ -77,7 +77,7 @@ export const api = {
   updateApplication: (id: number, body: Record<string, unknown>) =>
     request<Application>(`/api/applications/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteApplication: (id: number) => request<void>(`/api/applications/${id}`, { method: "DELETE" }),
-  prepareApplication: (id: number, body: { questions?: string[]; regenerate_resume?: boolean }) =>
+  prepareApplication: (id: number, body: { questions?: string[]; regenerate_resume?: boolean; regenerate_answers?: boolean }) =>
     request<Application>(`/api/applications/${id}/prepare`, { method: "POST", body: JSON.stringify(body) }),
   answerQuestions: (id: number, questions: string[]) =>
     request<Application>(`/api/applications/${id}/answer-questions`, {

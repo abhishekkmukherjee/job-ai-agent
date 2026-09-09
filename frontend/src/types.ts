@@ -85,6 +85,8 @@ export interface Answer {
   confidence: number;
   needs_review: boolean;
   field_selector?: string | null;
+  edited?: boolean;
+  source?: string;
 }
 
 export interface TailoredResume {
