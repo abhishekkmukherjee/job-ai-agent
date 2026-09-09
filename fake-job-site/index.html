@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Acme Robotics - Apply: AI Engineer</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 30px auto; padding: 0 16px; color: #222; }
+    label { display: block; margin-top: 14px; font-weight: 600; }
+    input, select, textarea { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; font: inherit; }
+    textarea { min-height: 90px; }
+    .row { display: flex; gap: 12px; } .row > div { flex: 1; }
+    button { margin-top: 20px; padding: 10px 18px; font: inherit; background: #2563eb; color: #fff; border: 0; border-radius: 6px; }
+    #success { display: none; background: #dcfce7; padding: 14px; margin-top: 20px; border-radius: 6px; }
+    .hint { color: #666; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>AI Engineer - Acme Robotics</h1>
+  <p class="hint">This is a local FAKE application form used to test the browser agent. Nothing is sent anywhere.</p>
+  <form id="application-form">
+    <div class="row">
+      <div><label for="first_name">First name</label><input id="first_name" name="first_name" type="text" required></div>
+      <div><label for="last_name">Last name</label><input id="last_name" name="last_name" type="text" required></div>
+    </div>
+    <label for="email">Email address</label><input id="email" name="email" type="email" required>
+    <label for="phone">Phone number</label><input id="phone" name="phone" type="tel">
+    <label for="location">Current location (city)</label><input id="location" name="location" type="text">
+    <label for="linkedin">LinkedIn profile URL</label><input id="linkedin" name="linkedin" type="url">
+    <label for="github">GitHub profile</label><input id="github" name="github" type="url">
+    <label for="resume">Resume / CV (PDF)</label><input id="resume" name="resume" type="file" accept=".pdf,.doc,.docx">
+    <label for="experience">Years of experience</label><input id="experience" name="years_experience" type="number" min="0" max="40">
+    <label for="current_company">Current company</label><input id="current_company" name="current_company" type="text">
+    <label for="notice">Notice period</label>
+    <select id="notice" name="notice_period">
+      <option value="">Select...</option>
+      <option>Immediate</option>
+      <option>15 days</option>
+      <option>30 days</option>
+      <option>60 days</option>
+      <option>90 days</option>
+    </select>
+    <label for="salary">Expected salary (annual)</label><input id="salary" name="expected_salary" type="text">
+    <label for="auth">Are you legally authorized to work in India?</label>
+    <select id="auth" name="work_authorization"><option value="">Select...</option><option>Yes</option><option>No</option></select>
+    <label for="why">Why do you want this role?</label><textarea id="why" name="why_role"></textarea>
+    <label for="about">Tell us about yourself</label><textarea id="about" name="about"></textarea>
+    <label for="cover">Cover letter (optional)</label><textarea id="cover" name="cover_letter"></textarea>
+    <label><input type="checkbox" name="consent" style="width:auto"> I agree to the privacy policy</label>
+    <button type="submit" id="submit-btn">Submit application</button>
+  </form>
+  <div id="success">Application submitted. Thank you!</div>
+  <script>
+    document.getElementById('application-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      document.getElementById('success').style.display = 'block';
+      document.getElementById('success').setAttribute('data-submitted', '1');
+    });
+  </script>
+</body>
+</html>

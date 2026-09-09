@@ -1,0 +1,24 @@
+# secrets / local state
+.env
+.env.*
+!.env.example
+data/
+*.db
+*.db-*
+browser-profiles/
+cookies*
+*.session
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# node
+node_modules/
+frontend/dist/
+
+# misc
+.DS_Store
+*.log

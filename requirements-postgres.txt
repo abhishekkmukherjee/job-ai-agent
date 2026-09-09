@@ -1,0 +1,2 @@
+# Install alongside requirements.txt when DATABASE_URL points at PostgreSQL
+psycopg[binary]>=3.1

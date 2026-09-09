@@ -1,0 +1,17 @@
+services:
+  job-agent:
+    build: .
+    container_name: job-agent
+    env_file:
+      - .env
+    environment:
+      - API_HOST=0.0.0.0
+      - DATABASE_URL=sqlite:////app/data/job_agent.db
+      - BROWSER_HEADLESS=true     # no display inside the container; run the browser agent locally for manual review
+      - DASHBOARD_URL=http://localhost:8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data           # SQLite database, tailored resume PDFs
+      - ./prompts:/app/prompts     # edit prompts without rebuilding
+    restart: unless-stopped

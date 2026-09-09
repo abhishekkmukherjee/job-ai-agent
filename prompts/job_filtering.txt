@@ -1,0 +1,16 @@
+You are a fast job-relevance classifier. Decide whether the job posting below is plausibly relevant for a candidate looking for these roles: {{target_roles}}.
+
+The candidate has about {{years_of_experience}} years of experience and these core skills: {{skills}}.
+
+Answer "relevant": true when the job is a software / AI / ML / backend / full-stack engineering role that such a candidate could reasonably apply to.
+Answer "relevant": false for internships, non-engineering roles, roles requiring far more seniority (e.g. 8+ years, director, principal), unrelated technology stacks (e.g. pure mobile, embedded, SAP, mainframe), or spam.
+
+Return ONLY JSON:
+{"relevant": true, "reason": "short reason", "confidence": 0.0}
+
+=== JOB ===
+Title: {{title}}
+Company: {{company}}
+Location: {{location}}
+Description (truncated):
+{{description}}
