@@ -76,6 +76,7 @@ class JobPipeline:
         self.preparer = preparer
         self.browser_agent = browser_agent
         self.email_applier = email_applier if email_applier is not None else EmailApplier(settings)
+        self._last_email_at: datetime | None = None
         self.is_running = False
         self._lock = asyncio.Lock()
 
@@ -440,6 +441,17 @@ class JobPipeline:
     ) -> bool:
         """Send the tailored resume + a grounded cover email to the address the posting names.  Returns True if sent."""
         url = job.apply_url or job.url or ""
+        # Gmail-safe volume: a daily cap on emails and a pause between sends, so the mailbox never looks like bulk mail.
+        sent_today = sum(1 for a in db.execute(select(Application).where(Application.applied_at.isnot(None))).scalars().all()
+                         if (a.fill_result or {}).get("channel") == "email" and a.applied_at and
+                         (a.applied_at if a.applied_at.tzinfo else a.applied_at.replace(tzinfo=timezone.utc)) >= self._start_of_local_day())
+        if sent_today >= cfg.email_daily_cap:
+            stats["auto_email_cap_reached"] = True
+            return False
+        if self._last_email_at is not None:
+            since_last = (datetime.now(timezone.utc) - self._last_email_at).total_seconds()
+            if since_last < cfg.email_min_interval_seconds:
+                await asyncio.sleep(cfg.email_min_interval_seconds - since_last)
         if self.email_applier.recently_emailed_company(db, job.company, cfg.email_per_company_days):
             if app is None:
                 app = application_service.create_application(db, ApplicationCreate(job_id=job.id, status=ApplicationStatus.SHORTLISTED))
@@ -493,6 +505,7 @@ class JobPipeline:
         db.commit()
         stats["auto_applied"] += 1
         stats["auto_emailed"] = stats.get("auto_emailed", 0) + 1
+        self._last_email_at = datetime.now(timezone.utc)
         log_event("AUTO_APPLIED", application_id=app.id, job_id=job.id, company=job.company, title=job.title, channel="email")
         if cfg.notify_each:
             await self._notify_event(

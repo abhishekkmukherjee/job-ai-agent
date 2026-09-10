@@ -88,6 +88,8 @@ class AutoApplySettings(BaseModel):
     notify_each: bool = True
     email_enabled: bool = True                   # apply by email when a posting asks for CVs by mail
     email_per_company_days: int = Field(default=7, ge=0, le=90)
+    email_daily_cap: int = Field(default=15, ge=0, le=100)      # Gmail-safe: well under Google's limits, spaced out
+    email_min_interval_seconds: int = Field(default=120, ge=0, le=3600)
 
 
 class RuntimeSettings(BaseModel):

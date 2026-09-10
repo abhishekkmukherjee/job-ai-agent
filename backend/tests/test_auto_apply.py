@@ -127,7 +127,7 @@ def build_pipeline(db, browser, preparer, notifier, **auto):
     from app.jobs.sources.registry import SourceRegistry
 
     settings = Settings(job_sources_enabled="", ai_route_job_analysis="", ai_route_classification="", ai_route_fallback="", gemini_api_key="", openrouter_api_key="", groq_api_key="")
-    update_runtime_settings(db, RuntimeSettingsUpdate(auto_apply=AutoApplySettings(enabled=True, min_score=85, daily_cap=2, **auto)))
+    update_runtime_settings(db, RuntimeSettingsUpdate(auto_apply=AutoApplySettings(enabled=True, min_score=85, daily_cap=2, **{"email_min_interval_seconds": 0, **auto})))
     return JobPipeline(SourceRegistry(settings, sources=[]), None, settings, notifier=notifier, preparer=preparer, browser_agent=browser)
 
 
@@ -310,3 +310,42 @@ def test_submit_blockers_require_application_shaped_form():
     assert submit_blockers([email, phone, city], [], ["Submit"], False, 3) == []
     # upload but no identity field -> blocked
     assert any("does not look like" in b for b in submit_blockers([upload, phone], [], ["Submit"], False, 2))
+
+
+async def test_email_daily_cap_and_pacing(db, monkeypatch):
+    profile_of(db)
+    scored_job(db, "41", "AI Engineer", "Mail A", "", 95).description = "Send your CV to hr@maila.com"
+    scored_job(db, "42", "AI Engineer", "Mail B", "", 94).description = "Send your CV to hr@mailb.com"
+    db.commit()
+    sent = []
+
+    class Applier:
+        def is_configured(self):
+            return True
+
+        def recently_emailed_company(self, db_, company, days):
+            return False
+
+        def send(self, to, subject, body, resume_path, reply_to=None):
+            sent.append(to)
+            return {"channel": "email", "to": to, "subject": subject, "attachment": "r.pdf"}
+
+    class Prep(FakePreparer):
+        class answerer:  # noqa: N801 - mimics QuestionAnswerer.answer
+            @staticmethod
+            async def answer(db_, job, questions):
+                from app.schemas.ai import QuestionAnswer
+
+                return [QuestionAnswer(question=questions[0], answer="Hello, I would like to apply.", confidence=0.9, needs_review=False)]
+
+    from app.jobs.pipeline import JobPipeline
+    from app.jobs.sources.registry import SourceRegistry
+
+    settings = Settings(job_sources_enabled="", gemini_api_key="", openrouter_api_key="", groq_api_key="")
+    update_runtime_settings(db, RuntimeSettingsUpdate(auto_apply=AutoApplySettings(enabled=True, min_score=85, daily_cap=10, email_daily_cap=1, email_min_interval_seconds=0)))
+    pipeline = JobPipeline(SourceRegistry(settings, sources=[]), None, settings, notifier=FakeNotifier(), preparer=Prep(), browser_agent=FakeBrowserAgent(), email_applier=Applier())
+    for app in db.query(Application).all():
+        app.resume_path = str(Path(__file__))  # any existing file
+    run = await pipeline.run(db, trigger="test", analyze=True)
+    assert run.status.value == "COMPLETED", run.error
+    assert sent == ["hr@maila.com"] and run.stats["auto_emailed"] == 1 and run.stats.get("auto_email_cap_reached") is True

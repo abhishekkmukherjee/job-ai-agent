@@ -120,6 +120,8 @@ export default function SettingsPage() {
             <div className="form-row"><label>Only APPLY (90+) jobs</label><div><input type="checkbox" checked={aa.require_recommendation_apply} onChange={(ev) => setAa("require_recommendation_apply", ev.target.checked)} /></div></div>
             <div className="form-row"><label>Daily cap</label><input type="number" min={0} max={100} value={aa.daily_cap} onChange={(ev) => setAa("daily_cap", Number(ev.target.value))} /></div>
             <div className="form-row"><label>Apply by email when a posting asks for CVs by mail</label><div><input type="checkbox" checked={aa.email_enabled} onChange={(ev) => setAa("email_enabled", ev.target.checked)} /></div></div>
+            <div className="form-row"><label>Max emails per day</label><input type="number" min={0} max={100} value={aa.email_daily_cap} onChange={(ev) => setAa("email_daily_cap", Number(ev.target.value))} /></div>
+            <div className="form-row"><label>Seconds between emails</label><input type="number" min={0} max={3600} value={aa.email_min_interval_seconds} onChange={(ev) => setAa("email_min_interval_seconds", Number(ev.target.value))} /></div>
             <div className="form-row"><label>Telegram per application</label><div><input type="checkbox" checked={aa.notify_each} onChange={(ev) => setAa("notify_each", ev.target.checked)} /></div></div>
             <div className="form-row"><label>Blocked domains</label><ChipInput value={aa.blocked_domains} onChange={(v) => setAa("blocked_domains", v)} /></div>
           </div>
