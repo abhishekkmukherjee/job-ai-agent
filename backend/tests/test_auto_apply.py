@@ -268,7 +268,7 @@ async def test_auto_apply_by_email_for_blocked_or_linkless_postings(db, tmp_path
     j3 = scored_job(db, "23", "AI Engineer", "NoMail Co", "https://www.linkedin.com/jobs/view/23", 91)
     db.commit()
     settings = Settings(job_sources_enabled="", gemini_api_key="", openrouter_api_key="", groq_api_key="")
-    update_runtime_settings(db, RuntimeSettingsUpdate(auto_apply=AutoApplySettings(enabled=True, min_score=85, daily_cap=5, email_enabled=True)))
+    update_runtime_settings(db, RuntimeSettingsUpdate(auto_apply=AutoApplySettings(email_min_interval_seconds=0, enabled=True, min_score=85, daily_cap=5, email_enabled=True)))
     preparer = FakePreparer()
     preparer.answerer = FakeAnswerer()
 
