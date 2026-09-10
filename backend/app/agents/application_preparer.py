@@ -46,8 +46,12 @@ class ApplicationPreparer:
                 if prev and prev.get("edited") and prev.get("answer") and not regenerate_answers:
                     merged.append(prev)
                 else:
-                    merged.append({**a.model_dump(), "source": "ai", "edited": False})
-            merged.extend(existing.values())
+                    merged.append({**a.model_dump(), "source": "ai", "edited": False, "profile_version": profile.version})
+            # Answers the AI wrote against an older profile version are stale facts: drop them (hand-edited ones stay).
+            merged.extend(
+                a for a in existing.values()
+                if a.get("edited") or a.get("profile_version") == profile.version
+            )
             app.answers = merged
             app.last_error = ""
             application_service.transition_status(db, app, ApplicationStatus.READY_TO_APPLY, note="material generated")
@@ -76,7 +80,8 @@ class ApplicationPreparer:
         current = [a for a in (app.answers or []) if isinstance(a, dict)]
         asked = {a.question.strip().lower() for a in answers}
         current = [a for a in current if a.get("question", "").strip().lower() not in asked]
-        app.answers = [*current, *[{**a.model_dump(), "source": "ai", "edited": False} for a in answers]]
+        profile = get_profile(db)
+        app.answers = [*current, *[{**a.model_dump(), "source": "ai", "edited": False, "profile_version": profile.version} for a in answers]]
         db.commit()
         db.refresh(app)
         return app

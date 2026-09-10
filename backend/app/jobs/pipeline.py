@@ -405,6 +405,25 @@ class JobPipeline:
         local_now = datetime.now(tz)
         return datetime.combine(local_now.date(), dtime.min, tzinfo=tz).astimezone(timezone.utc)
 
+    @staticmethod
+    def _recently_attempted(app: Application, hours: int = 24) -> bool:
+        """Skip an application the agent already tried recently; blocked-domain ones are never retried."""
+        fr = app.fill_result or {}
+        if not fr.get("auto_apply_attempted"):
+            return False
+        if fr.get("auto_apply") == "blocked_domain":
+            return True
+        at = fr.get("at")
+        if not at:
+            return True
+        try:
+            when = datetime.fromisoformat(str(at))
+        except ValueError:
+            return True
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - when).total_seconds() < hours * 3600
+
     def _auto_applied_today(self, db: Session) -> int:
         since = self._start_of_local_day()
         rows = db.execute(select(Application).where(Application.applied_at.isnot(None))).scalars().all()
@@ -527,7 +546,7 @@ class JobPipeline:
             if not url and not apply_email:
                 continue
             app = application_service.get_application_for_job(db, job.id)
-            if app is not None and (app.status in finished or (app.fill_result or {}).get("auto_apply_attempted")):
+            if app is not None and (app.status in finished or self._recently_attempted(app)):
                 continue
             domain = urlparse(url).netloc.lower() if url else ""
             is_blocked = bool(domain) and any(domain == b or domain.endswith("." + b) for b in blocked)

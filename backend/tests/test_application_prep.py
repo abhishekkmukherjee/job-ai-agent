@@ -241,3 +241,31 @@ async def test_prepare_regenerates_resume_after_profile_change(db):
     app = await preparer.prepare(db, app, questions=["Why do you want this role?"])
     assert app.tailored_resume["profile_version"] == 2
     assert sum(1 for c in provider.calls if "=== MASTER PROFILE" in c["prompt"]) == resume_calls + 1
+
+
+async def test_prepare_drops_ai_answers_from_older_profile_versions(db):
+    from sqlalchemy import select as sa_select
+
+    from app.schemas.application import ApplicationCreate
+    from app.services import application_service
+
+    _, _, preparer, _ = make()
+    job = nimbus(db)
+    app = application_service.create_application(db, ApplicationCreate(job_id=job.id, status="APPROVED"))
+    app = await preparer.prepare(db, app, questions=["Why do you want this role?", "Describe your backend experience."])
+    assert all(a["profile_version"] == 1 for a in app.answers)
+    # user edits one answer by hand
+    app.answers = [dict(a, answer="my own words", edited=True) if a["question"].startswith("Describe") else a for a in app.answers]
+    db.commit()
+    profile = db.execute(sa_select(Profile)).scalars().one()
+    profile.version += 1
+    db.commit()
+    app = await preparer.prepare(db, app, questions=["Why do you want this role?"])
+    by_q = {a["question"]: a for a in app.answers}
+    assert by_q["Why do you want this role?"]["profile_version"] == 2      # regenerated for the new profile
+    assert by_q["Describe your backend experience."]["answer"] == "my own words"  # hand-edited survives
+    # an un-edited stale answer for a question not re-asked disappears
+    app.answers = [*app.answers, {"question": "Old Q", "answer": "old fact", "profile_version": 1, "edited": False, "needs_review": False, "confidence": 0.9}]
+    db.commit()
+    app = await preparer.prepare(db, app, questions=["Why do you want this role?"])
+    assert "Old Q" not in {a["question"] for a in app.answers}
