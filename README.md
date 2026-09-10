@@ -100,7 +100,7 @@ Copy `.env.example` to `.env`. Nothing secret is ever committed or shown in the 
 
 | Variable | Purpose |
 |----------|---------|
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | Gemini (default `gemini-2.5-flash`, fallback `gemini-2.5-flash-lite`). First choice for job analysis, resume tailoring, answers. |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Gemini (default `gemini-2.5-flash`, fallback `gemini-3.5-flash-lite`). First choice for job analysis, resume tailoring, answers. |
 | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` | OpenRouter (default a free Gemma model). Fallback for everything. Run `python scripts/list_openrouter_free_models.py` to pick a free model. |
 | `GROQ_API_KEY`, `GROQ_MODEL` | Groq (free tier, very fast open models). First choice for cheap classification, second choice for everything else. |
 | `AI_ROUTE_*` | Provider chain per task, e.g. `AI_ROUTE_JOB_ANALYSIS=gemini,openrouter`. Entries may pin a model: `openrouter:google/gemma-3-27b-it:free`. |

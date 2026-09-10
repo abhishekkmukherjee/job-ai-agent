@@ -40,8 +40,8 @@ async def test_router_falls_back_after_rate_limit():
     router = AIRouter({"strong": strong, "cheap": cheap}, make_settings())
     out, meta = await router.complete_json("job_analysis", "hi", Out)
     assert out.value == 2
-    assert len(strong.calls) == 3  # bounded retries with backoff, then fallback
-    assert router.stats["rate_limits"] == 3
+    assert len(strong.calls) == 1  # parked at once because another provider was ready
+    assert router.stats["rate_limits"] == 1 and strong.in_cooldown()
 
 
 async def test_router_retries_transient_then_succeeds():
@@ -106,3 +106,17 @@ def test_factory_builds_all_providers():
     assert set(router.providers) == {"gemini", "openrouter", "groq"}
     assert router.configured_providers() == ["groq"]
     assert router.providers["groq"].base_url.startswith("https://api.groq.com")
+
+
+async def test_rate_limited_provider_is_parked_when_another_is_ready():
+    strong = FakeProvider(lambda p, s: AIRateLimitError("quota", retry_after=30))
+    cheap = FakeProvider(lambda p, s: {"value": 2})
+    router = AIRouter({"strong": strong, "cheap": cheap}, make_settings())
+    out, _ = await router.complete_json("job_analysis", "hi", Out)
+    assert out.value == 2
+    assert len(strong.calls) == 1            # no retries: parked immediately because cheap was ready
+    assert strong.in_cooldown() and strong.cooldown_remaining() > 20
+    # next request skips the parked provider without calling it at all
+    await router.complete_json("job_analysis", "again", Out)
+    assert len(strong.calls) == 1 and len(cheap.calls) == 2
+    assert "cooling down" in router.status_summary()["providers"]["strong"]["cooldown_reason"] or router.status_summary()["providers"]["strong"]["cooldown_seconds"] > 0

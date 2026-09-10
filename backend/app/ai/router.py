@@ -117,8 +117,15 @@ class AIRouter:
         errors: list[str] = []
         total_attempts = 0
         for provider, model in chain:
+            if provider.in_cooldown():
+                errors.append(f"{provider.name}: skipped, cooling down for {int(provider.cooldown_remaining())}s ({provider.cooldown_reason})")
+                continue
+            others_ready = any(p is not provider and not p.in_cooldown() for p, _ in chain)
             models = [model] if model else provider.models()
+            give_up_provider = False
             for model_name in models:
+                if give_up_provider:
+                    break
                 nudged = False
                 for attempt in range(self.max_retries):
                     total_attempts += 1
@@ -139,12 +146,20 @@ class AIRouter:
                     except AIRateLimitError as e:
                         self.stats["rate_limits"] += 1
                         errors.append(f"{provider.name}/{model_name}: {e}")
+                        log_event("AI_RATE_LIMITED", task=task, provider=provider.name, model=model_name, retry_after=e.retry_after, level=logging.WARNING)
+                        if others_ready:
+                            # Another provider can serve this and the next requests: park this one instead of waiting.
+                            provider.start_cooldown(e.retry_after or self.backoff_max * 3, f"rate limited on {model_name}")
+                            give_up_provider = True
+                            break
                         if attempt < self.max_retries - 1:
                             await asyncio.sleep(self._backoff(attempt, e.retry_after))
                             continue
+                        provider.start_cooldown(e.retry_after or self.backoff_max, f"rate limited on {model_name}")
                         break  # next model / provider
                     except AITransientError as e:
                         errors.append(f"{provider.name}/{model_name}: {e}")
+                        log_event("AI_ATTEMPT_FAILED", task=task, provider=provider.name, model=model_name, error=str(e)[:160], level=logging.WARNING)
                         if attempt < self.max_retries - 1:
                             await asyncio.sleep(self._backoff(attempt))
                             continue
@@ -158,6 +173,7 @@ class AIRouter:
                         break
                     except AIConfigurationError as e:
                         errors.append(f"{provider.name}/{model_name}: {e}")
+                        log_event("AI_ATTEMPT_FAILED", task=task, provider=provider.name, model=model_name, error=str(e)[:160], level=logging.WARNING)
                         break  # try the next model / provider, never retry
                     except AIError as e:
                         errors.append(f"{provider.name}/{model_name}: {e}")

@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------- ai
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
-    gemini_fallback_model: str = "gemini-2.5-flash-lite"
+    gemini_fallback_model: str = "gemini-3.5-flash-lite"
     gemini_thinking_budget: int | None = None  # set 0 to disable thinking on 2.5 models
     gemini_min_interval: float = 4.0  # seconds between requests (free tier ~15 RPM)
 
@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     ai_backoff_max: float = 20.0
     ai_quick_filter_enabled: bool = True
     ai_max_analyses_per_run: int = 40
+    ai_analysis_concurrency: int = 3   # jobs scored in parallel (spread across providers)
     ai_min_score_for_report: int = 75
 
     # Prompt versions (part of the AI cache key)

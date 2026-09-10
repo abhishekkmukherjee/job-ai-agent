@@ -351,29 +351,50 @@ class JobPipeline:
         stats["stale_rescored"] = 0
         pending = [*pending, *stale]
         limit = self.settings.ai_max_analyses_per_run
-        for job in pending[:limit]:
-            was_analyzed = job.pipeline_status == JobPipelineStatus.ANALYZED
-            try:
-                before = self.analyzer.ai.stats["requests"]
-                analysis = await self.analyzer.analyze_job(db, job, profile=profile)
-                stats["analyzed"] += 1
-                if was_analyzed:
-                    stats["stale_rescored"] += 1
-                if self.analyzer.ai.stats["requests"] == before:
-                    stats["cache_hits"] += 1
-                if analysis.match_score >= self.settings.ai_min_score_for_report:
-                    stats["strong_matches"] += 1
-            except AnalysisFailed as e:
-                stats["analysis_failed"] += 1
-                stats["failures"] += 1
-                self._record_failure(db, run, "analysis", e, job_id=job.id)
-            except Exception as e:  # noqa: BLE001
-                db.rollback()
-                stats["analysis_failed"] += 1
-                stats["failures"] += 1
-                self._record_failure(db, run, "analysis", e, job_id=job.id)
+        batch = [(j.id, j.pipeline_status == JobPipelineStatus.ANALYZED) for j in pending[:limit]]
+        concurrency = max(1, int(self.settings.ai_analysis_concurrency or 1))
+        if concurrency == 1:
+            for job in pending[:limit]:
+                await self._analyze_one(db, run, job, profile, job.pipeline_status == JobPipelineStatus.ANALYZED, stats)
+        else:
+            # Several jobs at once: each worker owns its own session; the providers' throttles and
+            # cooldowns spread the load across Gemini / Groq / OpenRouter.
+            sem = asyncio.Semaphore(concurrency)
+
+            async def worker(job_id: int, was_analyzed: bool) -> None:
+                async with sem:
+                    with session_scope() as s:
+                        job = s.get(Job, job_id)
+                        prof = get_profile(s)
+                        if job is not None:
+                            await self._analyze_one(s, run, job, prof, was_analyzed, stats, failure_db=db)
+
+            await asyncio.gather(*(worker(jid, was) for jid, was in batch))
         if len(pending) > limit:
             stats["analysis_deferred"] = len(pending) - limit
+
+    async def _analyze_one(
+        self, db: Session, run: SearchRun, job: Job, profile: Profile, was_analyzed: bool, stats: dict, failure_db: Session | None = None
+    ) -> None:
+        try:
+            before = self.analyzer.ai.stats["requests"]
+            analysis = await self.analyzer.analyze_job(db, job, profile=profile)
+            stats["analyzed"] += 1
+            if was_analyzed:
+                stats["stale_rescored"] += 1
+            if self.analyzer.ai.stats["requests"] == before:
+                stats["cache_hits"] += 1
+            if analysis.match_score >= self.settings.ai_min_score_for_report:
+                stats["strong_matches"] += 1
+        except AnalysisFailed as e:
+            stats["analysis_failed"] += 1
+            stats["failures"] += 1
+            self._record_failure(failure_db or db, run, "analysis", e, job_id=job.id)
+        except Exception as e:  # noqa: BLE001
+            db.rollback()
+            stats["analysis_failed"] += 1
+            stats["failures"] += 1
+            self._record_failure(failure_db or db, run, "analysis", e, job_id=job.id)
 
     # ---------------------------------------------------------- auto-apply
     def _start_of_local_day(self) -> datetime:

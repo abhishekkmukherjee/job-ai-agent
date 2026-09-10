@@ -21,6 +21,7 @@ os.environ["SEED_ON_STARTUP"] = "false"
 os.environ["SCHEDULER_ENABLED"] = "false"
 os.environ["BROWSER_HEADLESS"] = "true"
 os.environ["NOTIFICATION_PROVIDERS"] = "console"
+os.environ["AI_ANALYSIS_CONCURRENCY"] = "1"  # in-memory SQLite shares one connection
 os.environ.setdefault("GEMINI_API_KEY", "")
 os.environ.setdefault("OPENROUTER_API_KEY", "")
 os.environ.setdefault("GROQ_API_KEY", "")

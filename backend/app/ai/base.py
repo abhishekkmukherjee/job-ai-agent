@@ -65,6 +65,19 @@ class AIProvider(ABC):
         self.min_interval = min_interval
         self._last_request_at = 0.0
         self._lock = asyncio.Lock()
+        self.cooldown_until = 0.0   # monotonic timestamp; while in the future the provider is skipped
+        self.cooldown_reason = ""
+
+    # ---------------------------------------------------------- cooldown
+    def start_cooldown(self, seconds: float, reason: str = "rate limited") -> None:
+        self.cooldown_until = max(self.cooldown_until, time.monotonic() + max(1.0, seconds))
+        self.cooldown_reason = reason
+
+    def in_cooldown(self) -> bool:
+        return time.monotonic() < self.cooldown_until
+
+    def cooldown_remaining(self) -> float:
+        return max(0.0, self.cooldown_until - time.monotonic())
 
     @abstractmethod
     def is_configured(self) -> bool: ...
@@ -111,4 +124,7 @@ class AIProvider(ABC):
         return response
 
     def describe(self) -> dict[str, Any]:
-        return {"name": self.name, "configured": self.is_configured(), "models": self.models()}
+        return {
+            "name": self.name, "configured": self.is_configured(), "models": self.models(),
+            "cooldown_seconds": int(self.cooldown_remaining()), "cooldown_reason": self.cooldown_reason if self.in_cooldown() else "",
+        }
