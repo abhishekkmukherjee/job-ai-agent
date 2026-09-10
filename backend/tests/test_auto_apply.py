@@ -162,11 +162,11 @@ async def test_auto_apply_holds_back_when_answers_need_review_or_form_blocked(db
     browser, notifier = FakeBrowserAgent(submitted=True), FakeNotifier()
     pipeline = build_pipeline(db, browser, FakePreparer(needs_review=True), notifier)
     run = await pipeline.run(db, trigger="test", analyze=True)
-    assert run.stats["auto_applied"] == 0 and run.stats["auto_needs_review"] == 1 and browser.calls == []
+    # A flagged answer no longer blocks by itself: the browser agent skips it and only a *required*
+    # form field it cannot fill becomes a blocker.  With the fake browser reporting a clean submit, it applies.
+    assert run.stats["auto_applied"] == 1 and browser.calls[0][1] is True
     app = db.query(Application).filter_by(job_id=job.id).one()
-    assert app.status == ApplicationStatus.READY_TO_APPLY and app.fill_result["auto_apply_attempted"] is True
-    assert notifier.events[0][0].startswith("Needs you: AI Engineer at Review Co")
-    assert any("answer needs your review" in line for line in notifier.events[0][1])
+    assert app.status == ApplicationStatus.APPLIED and app.fill_result["auto_apply_attempted"] is True
 
     job2 = scored_job(db, "8", "AI Engineer", "Captcha Co", "https://boards.greenhouse.io/captchaco/jobs/8", 94)
     browser2 = FakeBrowserAgent(submitted=False, blockers=["CAPTCHA present (never bypassed)"])

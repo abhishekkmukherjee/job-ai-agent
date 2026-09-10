@@ -535,10 +535,9 @@ class JobPipeline:
                 if app is None:
                     app = application_service.create_application(db, ApplicationCreate(job_id=job.id, status=ApplicationStatus.APPROVED))
                 app = await self.preparer.prepare(db, app)
-                if not cfg.allow_needs_review_answers:
-                    pending = [str(a.get("question")) for a in (app.answers or []) if isinstance(a, dict) and a.get("needs_review")]
-                if not pending:
-                    result = await self.browser_agent.fill_application(db, app, headless=True, submit=True)
+                # Answers flagged for review are never typed into a form (the browser agent skips them);
+                # they only block the submission when the form requires that field.
+                result = await self.browser_agent.fill_application(db, app, headless=True, submit=True)
             except Exception as e:  # noqa: BLE001
                 db.rollback()
                 stats["failures"] += 1
