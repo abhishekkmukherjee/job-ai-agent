@@ -31,7 +31,9 @@ class ApplicationPreparer:
             application_service.transition_status(db, app, ApplicationStatus.PREPARING, note="generating material")
         db.commit()
         try:
-            if regenerate_resume or not app.tailored_resume:
+            # A resume built from an older profile version is never sent: regenerate it.
+            stale_resume = bool(app.tailored_resume) and (app.tailored_resume or {}).get("profile_version") != profile.version
+            if regenerate_resume or not app.tailored_resume or stale_resume:
                 resume, model = await self.tailor.generate(db, job, profile, force=regenerate_resume)
                 self.tailor.attach(db, app, resume, profile, model)
             qs = questions or DEFAULT_QUESTIONS

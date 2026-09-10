@@ -61,14 +61,14 @@ def test_submit_blockers():
     a_req_unmatched = ff("text", "Passport number", required=True)
     from app.browser.field_mapper import FillAction
 
-    actions = [FillAction(a_ok, "fill", "x", "profile", status="filled")]
+    actions = [FillAction(a_ok, "fill", "x", "profile", status="filled"), FillAction(ff("file", "Resume"), "upload", "r.pdf", "resume", status="uploaded")]
     assert submit_blockers(actions, [], ["Submit"], captcha=False, fields_total=2) == []
     assert "CAPTCHA" in submit_blockers(actions, [], ["Submit"], captcha=True, fields_total=2)[0]
     assert "no submit button" in submit_blockers(actions, [], [], captcha=False, fields_total=2)[0]
     assert "required field not filled: Passport number" in submit_blockers(actions, [a_req_unmatched], ["Submit"], False, 2)[0]
     assert submit_blockers(actions, [ff("text", "Optional thing")], ["Submit"], False, 2) == []
     failed = FillAction(a_ok, "fill", "x", "profile", status="failed")
-    assert "required field failed" in submit_blockers([failed], [], ["Submit"], False, 1)[0]
+    assert any("required field failed" in b for b in submit_blockers([failed], [], ["Submit"], False, 1))
 
 
 # --------------------------------------------------------------------------- pipeline stage
@@ -293,3 +293,20 @@ async def test_auto_apply_by_email_for_blocked_or_linkless_postings(db, tmp_path
     titles = [e[0] for e in notifier.events]
     assert any(t.startswith("Applied by email: AI Engineer at Mail Co") for t in titles)
     assert any(t.startswith("Manual apply needed: AI Engineer at NoMail Co") for t in titles)
+
+
+def test_submit_blockers_require_application_shaped_form():
+    from app.browser.field_mapper import FillAction
+
+    email = FillAction(ff("email", "Email address"), "fill", "a@b.com", "profile", status="filled")
+    upload = FillAction(ff("file", "Resume"), "upload", "r.pdf", "resume", status="uploaded")
+    phone = FillAction(ff("tel", "Phone"), "fill", "1", "profile", status="filled")
+    city = FillAction(ff("text", "City"), "fill", "Pune", "profile", status="filled")
+    # newsletter-style box: one email field + submit -> never auto-submitted
+    assert any("does not look like an application form" in b for b in submit_blockers([email], [], ["Subscribe"], False, 1))
+    # email + resume upload -> fine
+    assert submit_blockers([email, upload], [], ["Submit application"], False, 2) == []
+    # email + 3 profile fields, no upload -> fine
+    assert submit_blockers([email, phone, city], [], ["Submit"], False, 3) == []
+    # upload but no identity field -> blocked
+    assert any("does not look like" in b for b in submit_blockers([upload, phone], [], ["Submit"], False, 2))

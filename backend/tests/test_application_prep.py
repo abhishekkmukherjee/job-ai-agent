@@ -217,3 +217,27 @@ def test_ground_resume_tolerates_reworded_achievements(db):
     r, removed = ground_resume(r, profile)
     assert r.achievements == profile.achievements and r.certifications == profile.certifications
     assert removed == ["certification 'CKA'", "achievement 'Won a Nobel prize'"]
+
+
+async def test_prepare_regenerates_resume_after_profile_change(db):
+    from sqlalchemy import select as sa_select
+
+    tailor, answerer, preparer, provider = make()
+    job = nimbus(db)
+    from app.schemas.application import ApplicationCreate
+    from app.services import application_service
+
+    app = application_service.create_application(db, ApplicationCreate(job_id=job.id, status="APPROVED"))
+    app = await preparer.prepare(db, app, questions=["Why do you want this role?"])
+    assert app.tailored_resume["profile_version"] == 1
+    resume_calls = sum(1 for c in provider.calls if "=== MASTER PROFILE" in c["prompt"])
+    # same profile -> resume reused
+    app = await preparer.prepare(db, app, questions=["Why do you want this role?"])
+    assert sum(1 for c in provider.calls if "=== MASTER PROFILE" in c["prompt"]) == resume_calls
+    # profile changed -> resume regenerated and stamped with the new version
+    profile = db.execute(sa_select(Profile)).scalars().one()
+    profile.version += 1
+    db.commit()
+    app = await preparer.prepare(db, app, questions=["Why do you want this role?"])
+    assert app.tailored_resume["profile_version"] == 2
+    assert sum(1 for c in provider.calls if "=== MASTER PROFILE" in c["prompt"]) == resume_calls + 1

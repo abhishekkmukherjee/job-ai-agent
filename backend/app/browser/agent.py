@@ -72,9 +72,14 @@ SCAN_SCRIPT = """
   submitEls.forEach((b, i) => b.setAttribute('data-jobagent-submit', String(i)));
   const submits = submitEls.map(b => (b.innerText || b.value || '').trim()).slice(0, 5);
   const captcha = !!document.querySelector('iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], .g-recaptcha, .h-captcha, .cf-turnstile, [data-sitekey], #captcha, [name*="captcha" i]');
-  const applyLinks = Array.from(document.querySelectorAll('a, button'))
-    .filter(a => visible(a) && /^\\s*(apply|apply now|apply for this job|apply to this position|i'm interested|easy apply)\\s*$/i.test((a.innerText || '').trim()))
-    .map(a => a.getAttribute('href') || '').filter(h => h && !h.startsWith('javascript'));
+  const applyCandidates = Array.from(document.querySelectorAll('a, button'))
+    .filter(a => visible(a))
+    .map(a => ({ text: (a.innerText || a.getAttribute('aria-label') || '').replace(/\\s+/g, ' ').trim(), href: a.getAttribute('href') || '' }))
+    .filter(c => c.text.length < 60 && /\\bapply\\b|i'm interested|easy apply/i.test(c.text) && !/apply with|autofill|filter|search/i.test(c.text))
+    .filter(c => c.href && !c.href.startsWith('javascript') && !c.href.startsWith('mailto'));
+  // external / absolute application links first (job boards usually hand off to the employer's ATS)
+  applyCandidates.sort((a, b) => (b.href.startsWith('http') ? 1 : 0) - (a.href.startsWith('http') ? 1 : 0));
+  const applyLinks = applyCandidates.map(c => c.href);
   return { fields, submits, captcha, title: document.title, applyLinks: applyLinks.slice(0, 3), bodyText: (document.body ? document.body.innerText : '').slice(0, 4000) };
 }
 """

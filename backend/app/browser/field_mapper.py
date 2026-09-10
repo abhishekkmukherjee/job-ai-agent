@@ -311,6 +311,14 @@ def submit_blockers(
         blockers.append("CAPTCHA present (never bypassed)")
     if not submits:
         blockers.append("no submit button found")
+    # The form must look like a job application, not a newsletter box or a search bar:
+    # an identity field (name/email) plus either a resume upload or several profile fields.
+    filled = [a for a in actions if a.status in ("filled", "uploaded")]
+    identity = any(a.source == "profile" and a.field.kind in ("email", "text") and _has(a.field.text, "email", "e-mail", "name") for a in filled)
+    uploaded = any(a.action == "upload" and a.status == "uploaded" for a in filled)
+    profile_fields = sum(1 for a in filled if a.source in ("profile", "salary"))
+    if fields_total and not (identity and (uploaded or profile_fields >= 3)):
+        blockers.append("page does not look like an application form (no name/email with resume upload or profile fields)")
     for f in unmatched:
         if f.required:
             blockers.append(f"required field not filled: {f.display[:60]}")

@@ -225,7 +225,7 @@ class ResumeTailor:
     def attach(self, db: Session, app: Application, resume: TailoredResume, profile: Profile, model: str) -> None:
         version_n = int((app.resume_version or "v0").rsplit("v", 1)[-1] or 0) + 1
         path = render_resume_pdf(resume, profile, resume_path_for(app.id, version_n))
-        app.tailored_resume = resume.model_dump(mode="json")
+        app.tailored_resume = {**resume.model_dump(mode="json"), "profile_version": profile.version}
         app.resume_version = f"tailored-v{version_n}"
         app.resume_path = str(path)
         app.prepared_at = datetime.now(timezone.utc)
