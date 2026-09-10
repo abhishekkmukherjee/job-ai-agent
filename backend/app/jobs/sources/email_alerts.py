@@ -105,6 +105,47 @@ def _container_lines(anchor: Any) -> list[str]:
     return [x for x in lines if x and not _GENERIC_LINK_TEXT.match(x)]
 
 
+_RECRUITER_SUBJECT = re.compile(r"(?:job|opening|opportunity|hiring|vacancy)\s*[|:\-]\s*(?P<title>.+?)(?:\s+(?:in|at|@)\s+(?P<location>[A-Za-z ,/&()-]{2,60}))?\s*$", re.I)
+
+
+def parse_recruiter_email(html: str, subject: str, sender: str, received_at: datetime | None = None) -> NormalizedJob | None:
+    """Naukri / Instahyre style recruiter broadcasts: one job per email, title in the subject, 'Apply now' link in the body."""
+    m = _RECRUITER_SUBJECT.search(clean_text(re.sub(r"[^\w\s|:@&/,()-]", "", subject or "")))
+    if not m:
+        return None
+    soup = BeautifulSoup(html or "", "html.parser")
+    for tag in soup(["script", "style"]):
+        tag.decompose()
+    apply_url = ""
+    for a in soup.find_all("a", href=True):
+        if re.search(r"apply", a.get_text(" ", strip=True), re.I) and a["href"].startswith("http"):
+            apply_url = a["href"].strip()
+            break
+    text = clean_text(soup.get_text("\n", strip=True))
+    company = re.sub(r"<.*?>", "", sender or "").split("<")[0].strip().strip('"') or "Recruiter"
+    import hashlib
+
+    key = "recruiter-" + hashlib.sha1(f"{subject}|{sender}|{received_at}".encode("utf-8")).hexdigest()[:16]
+    title = clean_text(m.group("title"))[:200]
+    location = clean_text(m.group("location") or "")[:200]
+    if not title:
+        return None
+    return NormalizedJob(
+        external_id=key,
+        source="email_alerts",
+        title=title,
+        company=company[:200],
+        location=location,
+        remote_type=infer_remote_type(title, location, text[:2000], default=RemoteType.UNKNOWN),
+        description=f"Recruiter email ({subject}).\n\n{text[:6000]}",
+        url=apply_url,
+        apply_url=apply_url,
+        tags=["recruiter-email", "email-alert"],
+        posted_at=received_at,
+        raw={"board": "recruiter", "sender": sender, "subject": subject},
+    )
+
+
 def parse_alert_email(html: str, subject: str = "", sender: str = "", received_at: datetime | None = None) -> list[NormalizedJob]:
     """Extract job postings from one alert email.  Best effort - titles and links are reliable, the rest is heuristic."""
     soup = BeautifulSoup(html or "", "html.parser")
@@ -152,6 +193,10 @@ def parse_alert_email(html: str, subject: str = "", sender: str = "", received_a
             posted_at=received_at,
             raw={"board": board, "sender": sender, "subject": subject},
         )
+    if not found:
+        single = parse_recruiter_email(html, subject, sender, received_at)
+        if single is not None:
+            found[single.external_id] = single
     return list(found.values())
 
 

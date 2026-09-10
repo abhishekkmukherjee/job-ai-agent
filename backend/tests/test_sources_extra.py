@@ -109,3 +109,17 @@ async def test_email_source_filters_by_queries(monkeypatch):
     assert "linkedin-4123456789" in ids and "naukri-090926501234" in ids
     assert "linkedin-4987654321" in ids  # "Backend Engineer" passes the generic engineer/developer fallback
     assert not EmailAlertsSource().is_configured(SearchContext(queries=[]))
+
+
+def test_parse_naukri_recruiter_broadcast():
+    html = """<div><p>Dear Abhishek, we have an opening for Python Developer with Expertscan. Experience: 2-5 years. Location: Pune (Hybrid).</p>
+    <a href="http://my.naukri.com/AL/ResdexRMJMail/alid/{}/redirectParam/applyBroadcastMail?xz=1">Apply now</a>
+    <a href="https://www.naukri.com/imposter/report-fake-job-recruiter">block this recruiter</a></div>"""
+    jobs = parse_alert_email(html, subject="✉️ Job | Python Developer in Pune", sender="Expertscan Consultant <recruiter@naukri.com>")
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j.title == "Python Developer" and j.location == "Pune" and j.company == "Expertscan Consultant"
+    assert j.url.startswith("http://my.naukri.com/AL/ResdexRMJMail") and j.remote_type == RemoteType.HYBRID
+    assert "recruiter-email" in j.tags and j.external_id.startswith("recruiter-")
+    # marketing mail without a job subject yields nothing
+    assert parse_alert_email("<a href='https://www.naukri.com/'>Explore</a>", subject="Top companies are hiring on Naukri right now!", sender="Naukri <info@naukri.com>") == []
