@@ -29,7 +29,8 @@ def test_email_applier_sends_pdf_and_uses_gmail_creds(tmp_path, monkeypatch):
         sent.update({"host": host, "port": port, "user": user, "tls": use_tls, "msg": msg})
 
     monkeypatch.setattr(EmailApplier, "_deliver", staticmethod(fake_deliver))
-    applier = EmailApplier(Settings(imap_host="imap.gmail.com", imap_user="me@gmail.com", imap_password="app-pass", smtp_host=""))
+    assert not EmailApplier(Settings(imap_host="imap.gmail.com", imap_user="me@gmail.com", imap_password="app-pass", smtp_host="")).is_configured()  # read-only by default
+    applier = EmailApplier(Settings(imap_host="imap.gmail.com", imap_user="me@gmail.com", imap_password="app-pass", smtp_host="", smtp_use_imap_account=True))
     assert applier.is_configured()
     result = applier.send("hr@acme.com", "Application: AI Engineer", "Hello", str(pdf), reply_to="me@gmail.com")
     assert result["channel"] == "email" and result["to"] == "hr@acme.com"

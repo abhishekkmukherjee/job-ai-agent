@@ -107,6 +107,7 @@ class Settings(BaseSettings):
     imap_folder: str = "INBOX"
     imap_days: int = 3
     alert_senders: str = "linkedin.com,naukri.com,indeed.com,glassdoor.com,foundit.in,shine.com,instahyre.com,wellfound.com,hirist.com"
+    smtp_use_imap_account: bool = False  # send applications from the IMAP (reading) mailbox too - off: keep the main account read-only
 
     # ------------------------------------------------------------ scheduler
     scheduler_enabled: bool = False

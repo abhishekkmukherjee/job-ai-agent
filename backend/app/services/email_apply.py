@@ -57,8 +57,8 @@ class EmailApplier:
         s = self.settings
         if s.smtp_host and s.smtp_username and s.smtp_password:
             return s.smtp_host, s.smtp_port, s.smtp_username, s.smtp_password, s.smtp_from or s.smtp_username, s.smtp_use_tls
-        # Gmail: reuse the IMAP app password for sending
-        if s.imap_user and s.imap_password and "gmail" in (s.imap_host or "").lower():
+        # Gmail: reuse the IMAP app password for sending only when explicitly allowed (keeps the main mailbox read-only)
+        if s.smtp_use_imap_account and s.imap_user and s.imap_password and "gmail" in (s.imap_host or "").lower():
             return "smtp.gmail.com", 587, s.imap_user, s.imap_password, s.imap_user, True
         return None
 
