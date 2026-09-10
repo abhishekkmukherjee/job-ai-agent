@@ -123,6 +123,7 @@ class Settings(BaseSettings):
     smtp_from: str = ""
     smtp_to: str = ""
     smtp_use_tls: bool = True
+    smtp_reply_to: str = ""  # leave empty: a Reply-To that differs from From is a spam signal; forward the sending mailbox instead
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
 

@@ -39,7 +39,7 @@ from ..models import (
 from ..schemas.application import ApplicationCreate
 from ..schemas.job import NormalizedJob
 from ..services import application_service
-from ..services.email_apply import EmailApplier, find_application_email
+from ..services.email_apply import EmailApplier, email_signature, find_application_email
 from ..services.location import location_rank
 from ..services.profile_service import get_profile
 from ..services.settings_service import get_runtime_settings
@@ -486,7 +486,9 @@ class JobPipeline:
                 return False
             profile = get_profile(db)
             subject = f"Application for {job.title} - {profile.full_name}"
-            sent = await asyncio.to_thread(self.email_applier.send, apply_email, subject, body, app.resume_path, profile.email or None)
+            body = body.rstrip() + "\n\n" + email_signature(profile)
+            reply_to = self.settings.smtp_reply_to or None
+            sent = await asyncio.to_thread(self.email_applier.send, apply_email, subject, body, app.resume_path, reply_to)
         except Exception as e:  # noqa: BLE001
             db.rollback()
             stats["failures"] += 1

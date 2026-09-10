@@ -59,3 +59,14 @@ def test_location_rank_follows_profile_order(db):
     assert location_rank(job("Berlin"), profile) == 6
     assert location_matches("Gurugram, Haryana", "Delhi NCR") and location_matches("Kolkata", "kolkata")
     assert describe_priority(profile).startswith("Bangalore > Pune > Hyderabad")
+
+
+def test_email_signature(db):
+    from sqlalchemy import select as sa_select
+
+    from app.services.email_apply import email_signature
+
+    profile = db.execute(sa_select(Profile)).scalars().one()
+    profile.phone, profile.email, profile.linkedin_url, profile.portfolio_url = "+91 9", "a@b.com", "https://linkedin.com/in/x", "https://x.site"
+    sig = email_signature(profile)
+    assert sig.splitlines() == ["Abhishek Mukherjee", "+91 9 | a@b.com", "https://linkedin.com/in/x | https://x.site"]

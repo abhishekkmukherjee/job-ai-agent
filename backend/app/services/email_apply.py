@@ -48,6 +48,18 @@ def find_application_email(text: str) -> str | None:
     return addr if score >= 1 else None
 
 
+def email_signature(profile) -> str:
+    """A normal human signature: name, phone, links.  Makes the mail look like a person wrote it, because one did."""
+    lines = [profile.full_name or ""]
+    contact = " | ".join(x for x in [profile.phone, profile.email] if x)
+    if contact:
+        lines.append(contact)
+    links = " | ".join(x for x in [profile.linkedin_url, profile.portfolio_url or profile.github_url] if x)
+    if links:
+        lines.append(links)
+    return "\n".join(l for l in lines if l)
+
+
 class EmailApplier:
     def __init__(self, settings: Settings):
         self.settings = settings
