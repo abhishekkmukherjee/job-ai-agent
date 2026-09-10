@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Integer, String, Text
+from sqlalchemy import JSON, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base
@@ -34,7 +34,7 @@ class Profile(Base):
     linkedin_url: Mapped[str] = mapped_column(String(300), default="")
     github_url: Mapped[str] = mapped_column(String(300), default="")
     portfolio_url: Mapped[str] = mapped_column(String(300), default="")
-    years_of_experience: Mapped[float] = mapped_column(Integer, default=0)
+    years_of_experience: Mapped[float] = mapped_column(Float, default=0)
     notice_period: Mapped[str] = mapped_column(String(100), default="")
     expected_salary: Mapped[str] = mapped_column(String(100), default="")
     current_salary: Mapped[int | None] = mapped_column(Integer, nullable=True)          # annual, in salary_currency

@@ -67,6 +67,7 @@ class AIRouter:
         self.max_retries = max(1, settings.ai_max_retries)
         self.backoff_base = settings.ai_backoff_base
         self.backoff_max = settings.ai_backoff_max
+        self.cooldown_wait_max = float(getattr(settings, "ai_cooldown_wait_max", 90.0))
         fallback = parse_chain(settings.ai_route_fallback)
         self.routes: dict[str, list[tuple[str, str | None]]] = {
             "classification": parse_chain(settings.ai_route_classification),
@@ -116,6 +117,12 @@ class AIRouter:
             raise AIUnavailableError(task, ["no AI provider configured (set GEMINI_API_KEY or OPENROUTER_API_KEY)"])
         errors: list[str] = []
         total_attempts = 0
+        # If every provider is parked after rate limits, wait for the soonest one instead of failing outright.
+        if chain and all(p.in_cooldown() for p, _ in chain):
+            soonest = min(p.cooldown_remaining() for p, _ in chain)
+            wait = min(soonest, self.cooldown_wait_max)
+            log_event("AI_WAITING", task=task, seconds=int(wait), level=logging.WARNING)
+            await asyncio.sleep(wait)
         for provider, model in chain:
             if provider.in_cooldown():
                 errors.append(f"{provider.name}: skipped, cooling down for {int(provider.cooldown_remaining())}s ({provider.cooldown_reason})")
@@ -123,9 +130,10 @@ class AIRouter:
             others_ready = any(p is not provider and not p.in_cooldown() for p, _ in chain)
             models = [model] if model else provider.models()
             give_up_provider = False
-            for model_name in models:
+            for model_index, model_name in enumerate(models):
                 if give_up_provider:
                     break
+                more_models = model_index < len(models) - 1
                 nudged = False
                 for attempt in range(self.max_retries):
                     total_attempts += 1
@@ -147,6 +155,8 @@ class AIRouter:
                         self.stats["rate_limits"] += 1
                         errors.append(f"{provider.name}/{model_name}: {e}")
                         log_event("AI_RATE_LIMITED", task=task, provider=provider.name, model=model_name, retry_after=e.retry_after, level=logging.WARNING)
+                        if more_models:
+                            break  # the provider's fallback model has its own quota: try it right away
                         if others_ready:
                             # Another provider can serve this and the next requests: park this one instead of waiting.
                             provider.start_cooldown(e.retry_after or self.backoff_max * 3, f"rate limited on {model_name}")

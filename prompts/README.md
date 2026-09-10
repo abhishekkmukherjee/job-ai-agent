@@ -12,3 +12,5 @@ All LLM prompts live here as plain text with `{{placeholder}}` variables.
 To iterate on a prompt without losing the old one, save the new version as
 `job_analysis.v2.txt` and set `JOB_ANALYSIS_PROMPT_VERSION=2`.  The version is part
 of the AI cache key, so results are recomputed only for the changed task.
+
+Current versions: job_analysis v1, job_filtering v1, resume_tailoring v2 (angle selection, plain language), application_questions v3 (natural voice, salary rules).

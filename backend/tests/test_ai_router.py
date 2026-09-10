@@ -120,3 +120,28 @@ async def test_rate_limited_provider_is_parked_when_another_is_ready():
     await router.complete_json("job_analysis", "again", Out)
     assert len(strong.calls) == 1 and len(cheap.calls) == 2
     assert "cooling down" in router.status_summary()["providers"]["strong"]["cooldown_reason"] or router.status_summary()["providers"]["strong"]["cooldown_seconds"] > 0
+
+
+async def test_provider_fallback_model_tried_before_parking():
+    calls = []
+
+    def strong_responder(prompt, system):
+        calls.append(1)
+        return AIRateLimitError("rpm") if len(calls) == 1 else {"value": 4}
+
+    strong = FakeProvider(strong_responder)
+    strong.fallback_model = "fake-fallback"
+    cheap = FakeProvider(lambda p, s: {"value": 2})
+    router = AIRouter({"strong": strong, "cheap": cheap}, make_settings())
+    out, meta = await router.complete_json("job_analysis", "hi", Out)
+    assert out.value == 4 and meta.model == "fake-fallback" and not strong.in_cooldown()
+
+
+async def test_router_waits_for_soonest_cooldown_when_all_parked():
+    strong = FakeProvider(lambda p, s: {"value": 1})
+    cheap = FakeProvider(lambda p, s: {"value": 2})
+    strong.start_cooldown(0.05, "test")
+    cheap.start_cooldown(0.3, "test")
+    router = AIRouter({"strong": strong, "cheap": cheap}, make_settings())
+    out, _ = await router.complete_json("job_analysis", "hi", Out)
+    assert out.value == 1 and len(cheap.calls) == 0

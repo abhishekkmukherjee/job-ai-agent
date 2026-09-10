@@ -65,7 +65,8 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DASHBOARD_URL: ${{ vars.DASHBOARD_URL || 'http://localhost:8000' }}
-          APPLICATION_QUESTIONS_PROMPT_VERSION: "2"
+          APPLICATION_QUESTIONS_PROMPT_VERSION: "3"
+          RESUME_TAILORING_PROMPT_VERSION: "2"
           BROWSER_HEADLESS: "true"
           AI_MAX_ANALYSES_PER_RUN: "150"
           BROWSER_KEEP_OPEN: "false"

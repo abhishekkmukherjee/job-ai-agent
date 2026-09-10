@@ -39,7 +39,7 @@ def update_profile(db: Session, data: ProfileUpdate) -> Profile:
     return profile
 
 
-def profile_to_prompt_text(profile: Profile, include_contact: bool = False) -> str:
+def profile_to_prompt_text(profile: Profile, include_contact: bool = False, compact: bool = False) -> str:
     """Render the profile as compact structured text for LLM prompts.
 
     Contact details are excluded by default (not needed for matching, keeps prompts small).
@@ -69,9 +69,10 @@ def profile_to_prompt_text(profile: Profile, include_contact: bool = False) -> s
         lines.append(f"Technologies: {', '.join(profile.technologies)}")
     lines.append("")
     lines.append("Experience:")
+    max_bullets = 4 if compact else 1000
     for exp in profile.experience or []:
         lines.append(f"- {exp.get('title')} at {exp.get('company')} ({exp.get('start', '')} - {exp.get('end', '') or 'Present'})")
-        for b in exp.get("bullets", []) or []:
+        for b in (exp.get("bullets", []) or [])[:max_bullets]:
             lines.append(f"    * {b}")
         if exp.get("technologies"):
             lines.append(f"    Technologies: {', '.join(exp['technologies'])}")
@@ -81,8 +82,9 @@ def profile_to_prompt_text(profile: Profile, include_contact: bool = False) -> s
         lines.append(f"- {proj.get('name')}: {proj.get('description', '')}")
         if proj.get("technologies"):
             lines.append(f"    Technologies: {', '.join(proj['technologies'])}")
-        for b in proj.get("bullets", []) or []:
-            lines.append(f"    * {b}")
+        if not compact:
+            for b in proj.get("bullets", []) or []:
+                lines.append(f"    * {b}")
     lines.append("")
     lines.append("Education:")
     for edu in profile.education or []:

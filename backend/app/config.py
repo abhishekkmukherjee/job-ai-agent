@@ -79,12 +79,14 @@ class Settings(BaseSettings):
     ai_quick_filter_enabled: bool = True
     ai_max_analyses_per_run: int = 40
     ai_analysis_concurrency: int = 3   # jobs scored in parallel (spread across providers)
+    ai_cooldown_wait_max: float = 90.0  # max seconds to wait when every provider is rate limited
+    ai_analysis_description_chars: int = 4500  # job description length sent for scoring (token budget)
     ai_min_score_for_report: int = 75
 
     # Prompt versions (part of the AI cache key)
     job_analysis_prompt_version: int = 1
-    resume_tailoring_prompt_version: int = 1
-    application_questions_prompt_version: int = 2
+    resume_tailoring_prompt_version: int = 2
+    application_questions_prompt_version: int = 3
     job_filtering_prompt_version: int = 1
 
     # ------------------------------------------------------------ discovery

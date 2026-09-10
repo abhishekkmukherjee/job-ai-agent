@@ -81,8 +81,8 @@ class JobAnalyzer:
         log_event("AI_ANALYSIS_STARTED", job_id=job.id, title=job.title, company=job.company)
         prompt = render_prompt(
             load_prompt("job_analysis", prompt_version),
-            profile=profile_to_prompt_text(profile),
-            job=job_to_prompt_text(job),
+            profile=profile_to_prompt_text(profile, compact=True),
+            job=job_to_prompt_text(job, max_description_chars=self.settings.ai_analysis_description_chars),
         )
         try:
             analysis, meta = await self.ai.complete_json(
