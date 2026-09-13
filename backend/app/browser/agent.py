@@ -336,6 +336,12 @@ class BrowserAgent:
             await page.wait_for_selector("input:not([type=hidden]), textarea, select", state="attached", timeout=timeout_ms)
         except Exception:  # noqa: BLE001 - a description page without a form is normal
             pass
+        try:
+            # Server-rendered inputs (Recruitee) exist before the page script hydrates them; a file set
+            # before that is silently ignored by the upload widget.  Wait for the page to settle.
+            await page.wait_for_load_state("networkidle", timeout=timeout_ms)
+        except Exception:  # noqa: BLE001 - pages with long polling never go idle
+            pass
         await page.wait_for_timeout(800)
 
     async def _scan_or_follow_apply(self, session: BrowserSession, max_hops: int = 2) -> ScanResult:
