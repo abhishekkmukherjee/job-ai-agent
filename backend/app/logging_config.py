@@ -19,7 +19,8 @@ SENSITIVE_KEY_PATTERN = re.compile(
 )
 # Long opaque strings that look like credentials (e.g. "AIzaSy..." or "sk-or-v1-...")
 SENSITIVE_VALUE_PATTERN = re.compile(
-    r"(AIza[0-9A-Za-z\-_]{20,}|AQ\.[0-9A-Za-z\-_]{20,}|sk-or-v1-[0-9a-f]{20,}|sk-[A-Za-z0-9]{20,}|gsk_[A-Za-z0-9]{20,}|Bearer\s+\S+|x-goog-api-key[=: ]+\S+)"
+    r"(AIza[0-9A-Za-z\-_]{20,}|AQ\.[0-9A-Za-z\-_]{20,}|sk-or-v1-[0-9a-f]{20,}|sk-[A-Za-z0-9]{20,}|gsk_[A-Za-z0-9]{20,}"
+    r"|Bearer\s+\S+|x-goog-api-key[=: ]+\S+|Illegal header value b'[^']*'|\d{8,12}:[A-Za-z0-9_-]{30,})"
 )
 
 EVENTS = {

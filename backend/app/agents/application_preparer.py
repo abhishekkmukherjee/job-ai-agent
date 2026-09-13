@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from ..logging_config import log_event
+from ..logging_config import log_event, redact
 from ..models import Application, ApplicationStatus
 from ..services import application_service
 from ..services.profile_service import get_profile
@@ -63,7 +63,7 @@ class ApplicationPreparer:
             )
             return app
         except (TailoringFailed, AnsweringFailed) as e:
-            app.last_error = f"Preparation failed: {e}"[:1000]
+            app.last_error = redact(f"Preparation failed: {e}")[:1000]
             application_service.transition_status(db, app, ApplicationStatus.APPROVED, note="preparation failed")
             db.commit()
             log_event("APPLICATION_FAILED", application_id=app.id, stage="prepare", error=str(e)[:300])

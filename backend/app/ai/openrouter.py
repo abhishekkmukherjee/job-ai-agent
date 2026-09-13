@@ -5,6 +5,8 @@ from typing import Any
 
 import httpx
 
+from ..logging_config import redact
+
 from .base import (
     AIConfigurationError,
     AIError,
@@ -71,7 +73,7 @@ class OpenRouterProvider(AIProvider):
         except httpx.TimeoutException as e:
             raise AITransientError(f"{self.name} timeout: {e}") from e
         except httpx.HTTPError as e:
-            raise AITransientError(f"{self.name} connection error: {e}") from e
+            raise AITransientError(f"{self.name} connection error: {redact(str(e))}") from e
 
         if resp.status_code == 429:
             retry_after = None

@@ -133,6 +133,16 @@ class Settings(BaseSettings):
     browser_timeout_ms: int = 30000
     browser_keep_open: bool = True
 
+    @field_validator("*", mode="before")
+    @classmethod
+    def _strip_strings(cls, value):
+        """Strip stray whitespace from every string setting.
+
+        Secrets pasted into GitHub Actions / CI or copied into ``.env`` often carry a
+        trailing newline; sent as-is, every API call fails with "Illegal header value".
+        """
+        return value.strip() if isinstance(value, str) else value
+
     @field_validator("database_url")
     @classmethod
     def _ensure_sqlite_dir(cls, value: str) -> str:

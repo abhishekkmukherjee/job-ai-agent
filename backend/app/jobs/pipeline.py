@@ -23,7 +23,7 @@ from ..agents.job_analyzer import AnalysisFailed, JobAnalyzer
 from ..ai.base import AIUnavailableError
 from ..config import Settings
 from ..database import session_scope
-from ..logging_config import log_event
+from ..logging_config import log_event, redact
 from ..models import (
     Application,
     ApplicationStatus,
@@ -102,7 +102,7 @@ class JobPipeline:
             await self.run(db, run=run, sources=sources, analyze=analyze, notify=notify, max_per_source=max_per_source)
 
     def _record_failure(self, db: Session, run: SearchRun, stage: str, error: Exception | str, **extra: Any) -> None:
-        msg = f"{type(error).__name__}: {error}" if isinstance(error, Exception) else str(error)
+        msg = redact(f"{type(error).__name__}: {error}" if isinstance(error, Exception) else str(error))
         db.add(
             PipelineFailure(
                 run_id=run.id, stage=stage, source=extra.get("source", ""), job_id=extra.get("job_id"),
