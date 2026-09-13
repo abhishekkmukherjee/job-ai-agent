@@ -127,11 +127,17 @@ class BrowserAgent:
             raise RuntimeError("Playwright is not installed. Run: pip install playwright && playwright install chromium") from e
         pw = await async_playwright().start()
         try:
-            browser = await pw.chromium.launch(headless=headless, slow_mo=self.settings.browser_slow_mo_ms or 0)
+            browser = await pw.chromium.launch(
+                headless=headless, slow_mo=self.settings.browser_slow_mo_ms or 0,
+                args=[] if headless else ["--start-maximized"],
+            )
         except Exception as e:  # noqa: BLE001
             await pw.stop()
             raise RuntimeError(f"Could not launch Chromium: {e}. Run: python -m playwright install chromium") from e
-        context = await browser.new_context(accept_downloads=False, viewport={"width": 1280, "height": 900})
+        # Headed: let the page follow the real window size so the user can scroll the whole form.
+        # A fixed viewport larger than the window leaves the bottom of the page unreachable.
+        size = {"viewport": {"width": 1280, "height": 900}} if headless else {"no_viewport": True}
+        context = await browser.new_context(accept_downloads=False, **size)
         context.set_default_timeout(self.settings.browser_timeout_ms)
         page = await context.new_page()
         session = BrowserSession(application_id, pw, browser, context, page)
@@ -152,7 +158,7 @@ class BrowserAgent:
         pw = await async_playwright().start()
         try:
             context = await pw.chromium.launch_persistent_context(
-                str(profile_dir), headless=False, viewport={"width": 1280, "height": 900}, accept_downloads=False,
+                str(profile_dir), headless=False, no_viewport=True, args=["--start-maximized"], accept_downloads=False,
                 slow_mo=self.settings.browser_slow_mo_ms or 0,
             )
         except Exception as e:  # noqa: BLE001
