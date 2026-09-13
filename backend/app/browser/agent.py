@@ -253,7 +253,7 @@ class BrowserAgent:
             page = session.page
             try:
                 await page.goto(target, wait_until="domcontentloaded")
-                await page.wait_for_timeout(800)  # let client-side forms render
+                await self._wait_for_fields(page)
                 scan = await self._scan_or_follow_apply(session)
                 actions, question_fields, unmatched = map_fields(scan.fields, profile, resume_path, app.cover_note or "", job_remote)
                 answer_actions, unanswered = await self._plan_answers(db, app, question_fields)
@@ -329,6 +329,15 @@ class BrowserAgent:
                 apply_links = data.get("applyLinks", []) or []
         return ScanResult(fields, submits, captcha, title, apply_links, body_text)
 
+    @staticmethod
+    async def _wait_for_fields(page: Any, timeout_ms: int = 10000) -> None:
+        """Client-rendered forms (Ashby, BambooHR, Greenhouse embeds) appear well after DOMContentLoaded."""
+        try:
+            await page.wait_for_selector("input:not([type=hidden]), textarea, select", state="attached", timeout=timeout_ms)
+        except Exception:  # noqa: BLE001 - a description page without a form is normal
+            pass
+        await page.wait_for_timeout(800)
+
     async def _scan_or_follow_apply(self, session: BrowserSession, max_hops: int = 2) -> ScanResult:
         """Job-board pages often show the description with an 'Apply' link to the real form."""
         scan = await self._scan(session)
@@ -340,7 +349,7 @@ class BrowserAgent:
                     await session.page.click(f"a[href='{href}']", timeout=5000)
                 else:
                     await session.page.goto(href if href.startswith("http") else session.page.url.rsplit("/", 1)[0] + "/" + href.lstrip("/"), wait_until="domcontentloaded")
-                await session.page.wait_for_timeout(1200)
+                await self._wait_for_fields(session.page)
             except Exception:  # noqa: BLE001
                 break
             hops += 1
@@ -449,6 +458,12 @@ class BrowserAgent:
         except Exception:  # noqa: BLE001
             remaining = -1
         if page.url != before_url and remaining == 0:
+            before_base = before_url.partition("?")[0].partition("#")[0]
+            after_base, _, query = page.url.partition("?")
+            if after_base.partition("#")[0] == before_base and query:
+                # Same page with the field values in the query string: the browser did a plain GET
+                # submission because the site's JavaScript never handled the click.  Nothing was sent.
+                return False, "form did a plain GET submission (site script did not handle the click); not submitted"
             return True, f"form disappeared after navigation to {page.url}"
         try:
             errors = await page.evaluate(
